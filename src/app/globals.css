@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+:root {
+  --ds-font-family-base: "Roboto", "Segoe UI", sans-serif;
+  --ds-font-display-lg: 500 28px/1.2 "Roboto", "Segoe UI", sans-serif;
+  --ds-font-h1: 700 24px/1.33 "Roboto", "Segoe UI", sans-serif;
+  --ds-font-body-base: 400 14px/1.57 "Roboto", "Segoe UI", sans-serif;
+  --ds-font-body-sm: 400 12px/1.6 "Roboto", "Segoe UI", sans-serif;
+
+  --ds-radius-sm: 8px;
+  --ds-radius-md: 12px;
+  --ds-radius-lg: 16px;
+
+  --ds-elevation-1: 0 2px 4px -2px rgba(24, 39, 75, 0.06),
+    0 4px 4px -2px rgba(24, 39, 75, 0.06);
+  --ds-elevation-2: 0 4px 6px -4px rgba(24, 39, 75, 0.12),
+    0 8px 8px -4px rgba(24, 39, 75, 0.08);
+  --ds-elevation-3: 0 6px 8px -6px rgba(24, 39, 75, 0.12),
+    0 8px 16px -6px rgba(24, 39, 75, 0.08);
+
+  --ds-color-green-900: #023517;
+  --ds-color-green-800: #034c1f;
+  --ds-color-green-700: #175b23;
+  --ds-color-green-600: #266a27;
+  --ds-color-green-500: #35792a;
+  --ds-color-green-100: #e1f3db;
+  --ds-color-green-50: #effdea;
+
+  --ds-color-blue-900: #0f2f5f;
+  --ds-color-blue-700: #1850a3;
+  --ds-color-blue-600: #2667cc;
+  --ds-color-blue-100: #e0ebff;
+  --ds-color-blue-50: #edf3ff;
+
+  --ds-color-gray-900: #1e2c3a;
+  --ds-color-gray-700: #4a5d6d;
+  --ds-color-gray-500: #7a8b99;
+  --ds-color-gray-300: #c8d1d8;
+  --ds-color-gray-100: #eef2f5;
+
+  --background: #f7faf8;
+  --surface-0: #ffffff;
+  --surface-1: #f3f8f5;
+  --surface-2: #e8f2ec;
+  --surface-3: #dcebe2;
+  --text-primary: var(--ds-color-gray-900);
+  --text-secondary: var(--ds-color-gray-700);
+  --text-muted: var(--ds-color-gray-500);
+  --border: var(--ds-color-gray-300);
+  --brand-400: #4d9754;
+  --brand-500: var(--ds-color-green-500);
+  --brand-600: var(--ds-color-green-600);
+  --brand-700: var(--ds-color-green-700);
+  --accent: var(--ds-color-blue-600);
+  --code-bg: #f4f9ff;
+  --code-fg: #1c2f45;
+  --code-border: #c8d9ea;
+  --code-keyword: #2459a8;
+  --code-operator: #36577f;
+  --code-function: #1f7a52;
+  --code-punctuation: #47627d;
+  --code-string: #1b7a52;
+  --code-number: #9a5c18;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-heading);
+  --font-mono: var(--font-mono);
+}
+
+.dark {
+  --background: #0f1912;
+  --surface-0: #16231a;
+  --surface-1: #1b2d21;
+  --surface-2: #213828;
+  --surface-3: #294733;
+  --text-primary: #e5f2e8;
+  --text-secondary: #c5dccb;
+  --text-muted: #9fbeaa;
+  --border: #355240;
+  --brand-400: #77b87c;
+  --brand-500: #5ea663;
+  --brand-600: #4d9754;
+  --brand-700: #3f8748;
+  --accent: #78a8ff;
+  --code-bg: #10263e;
+  --code-fg: #eaf3ff;
+  --code-border: rgba(224, 235, 255, 0.16);
+  --code-keyword: #7bb0ff;
+  --code-operator: #c2d8ff;
+  --code-function: #7fd1a2;
+  --code-punctuation: #c3d8ea;
+  --code-string: #80d5a6;
+  --code-number: #f7c074;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-primary);
+  font: var(--ds-font-body-base);
+}
+
+.dashboard-glow {
+  background: radial-gradient(circle at 0% 0%, rgba(53, 121, 42, 0.14), transparent 32%),
+    radial-gradient(circle at 100% 20%, rgba(24, 80, 163, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(241, 248, 243, 0.7), transparent 40%);
+}
+
+.sql-scroll code {
+  font-family: var(--font-mono), "Cascadia Code", monospace;
+  color: var(--code-fg);
+  white-space: pre;
+}
+
+.sql-scroll {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.ds-display-lg {
+  font: var(--ds-font-display-lg);
+}
+
+.ds-h1 {
+  font: var(--ds-font-h1);
+}
+
+.ds-body {
+  font: var(--ds-font-body-base);
+}
+
+.ds-caption {
+  font: var(--ds-font-body-sm);
+}
+
+.token.keyword {
+  color: var(--code-keyword);
+}
+
+.token.operator {
+  color: var(--code-operator);
+}
+
+.token.function {
+  color: var(--code-function);
+}
+
+.token.punctuation {
+  color: var(--code-punctuation);
+}
+
+.token.string {
+  color: var(--code-string);
+}
+
+.token.number {
+  color: var(--code-number);
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.5s ease-out both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
