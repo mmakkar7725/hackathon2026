@@ -27,4 +27,12 @@ export interface IntakeParseResponse {
   parserMode: "gemini" | "fallback";
   statusLabel: string;
   statusDetail: string;
+  parseMeta?: {
+    extractionSource?: string;
+    extractedTextLength?: number;
+    finalTextLength?: number;
+    usedTranscription?: boolean;
+    transcriptionModel?: string;
+    geminiFailureReason?: string;
+  };
 }

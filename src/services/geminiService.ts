@@ -6,6 +6,10 @@ interface GeminiRefinementResult {
   confidenceScore?: number;
 }
 
+function resolveGeminiModelName(model: string) {
+  return model.startsWith("models/") ? model : `models/${model}`;
+}
+
 function extractTextFromGeminiResponse(payload: unknown): string {
   const response = payload as {
     candidates?: Array<{
@@ -47,7 +51,9 @@ export async function refineSqlWithGemini(input: {
   filterSummary: string;
 }) {
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  const model = resolveGeminiModelName(
+    process.env.GEMINI_MODEL ?? "models/gemini-2.5-flash"
+  );
 
   if (!apiKey) {
     return null;
@@ -70,7 +76,7 @@ export async function refineSqlWithGemini(input: {
   ].join("\n");
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: {

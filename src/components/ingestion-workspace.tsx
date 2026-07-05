@@ -21,6 +21,24 @@ export function IngestionWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<SelectedRecord>(null);
   const [showRawJson, setShowRawJson] = useState(false);
+  const [parseDebug, setParseDebug] = useState<{
+    sourceFileName: string;
+    parserMode: IntakeParseResponse["parserMode"];
+    demographicsRows: number;
+    medicalRows: number;
+    demographicsMissingName: number;
+    demographicsMissingGender: number;
+    medicalMissingCondition: number;
+    medicalMissingCode: number;
+    extractionSource?: string;
+    extractedTextLength?: number;
+    finalTextLength?: number;
+    usedTranscription?: boolean;
+    transcriptionModel?: string;
+    geminiFailureReason?: string;
+    previewDemographics?: DemographicsRecord;
+    previewMedical?: MedicalHistoryRecord;
+  } | null>(null);
   const [tables, setTables] = useState(() => readTables());
 
   const formatDateTime = (timestamp?: number) => {
@@ -64,22 +82,61 @@ export function IngestionWorkspace() {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error("Parse failed");
+      const payload = (await response.json()) as Partial<IntakeParseResponse> & {
+        error?: string;
+      };
+
+      if (
+        !payload ||
+        !Array.isArray(payload.demographics) ||
+        !Array.isArray(payload.medicalHistory)
+      ) {
+        throw new Error(payload?.error || "Invalid parser response.");
       }
 
-      const payload = (await response.json()) as IntakeParseResponse;
+      if (!response.ok) {
+        throw new Error(payload.error || "Parser endpoint returned an error status.");
+      }
+
+      const safePayload = payload as IntakeParseResponse;
       appendToTables({
-        demographics: payload.demographics,
-        medicalHistory: payload.medicalHistory,
+        demographics: safePayload.demographics,
+        medicalHistory: safePayload.medicalHistory,
       });
 
-      setStatusLabel(payload.statusLabel);
-      setStatusDetail(payload.statusDetail);
+      setParseDebug({
+        sourceFileName: selectedFile.name,
+        parserMode: safePayload.parserMode,
+        demographicsRows: safePayload.demographics.length,
+        medicalRows: safePayload.medicalHistory.length,
+        demographicsMissingName: safePayload.demographics.filter(
+          (row) => !row.fullName || row.fullName === "Unknown Patient"
+        ).length,
+        demographicsMissingGender: safePayload.demographics.filter((row) => !row.gender).length,
+        medicalMissingCondition: safePayload.medicalHistory.filter(
+          (row) => !row.condition || row.condition === "Unspecified condition"
+        ).length,
+        medicalMissingCode: safePayload.medicalHistory.filter((row) => !row.code || row.code === "N/A").length,
+        extractionSource: safePayload.parseMeta?.extractionSource,
+        extractedTextLength: safePayload.parseMeta?.extractedTextLength,
+        finalTextLength: safePayload.parseMeta?.finalTextLength,
+        usedTranscription: safePayload.parseMeta?.usedTranscription,
+        transcriptionModel: safePayload.parseMeta?.transcriptionModel,
+        geminiFailureReason: safePayload.parseMeta?.geminiFailureReason,
+        previewDemographics: safePayload.demographics[0],
+        previewMedical: safePayload.medicalHistory[0],
+      });
+
+      setStatusLabel(safePayload.statusLabel);
+      setStatusDetail(safePayload.statusDetail);
       setTables(readTables());
       setSelectedFile(null);
-    } catch {
-      setError("Could not parse this file. Try another format or retry with Gemini key configured.");
+    } catch (cause) {
+      const detail =
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Could not parse this file. Try another format or retry with Gemini key configured.";
+      setError(detail);
     } finally {
       setIsParsing(false);
     }
@@ -101,22 +158,33 @@ export function IngestionWorkspace() {
         </p>
 
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <input
-            type="file"
-            onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-            className="ds-body block w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2"
-          />
+          <div className="w-full">
+            <input
+              type="file"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+              disabled={isParsing}
+              className="file-input-accent ds-body block w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2"
+            />
+            <p className="ds-caption mt-2 inline-flex rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-[var(--text-secondary)]">
+              {selectedFile
+                ? `Selected: ${selectedFile.name} (${Math.max(1, Math.round(selectedFile.size / 1024))} KB)`
+                : "No file chosen"}
+            </p>
+            {isParsing ? (
+              <div className="mt-3 rounded-[var(--ds-radius-sm)] border border-[var(--brand-400)] bg-[var(--surface-1)] p-2">
+                <p className="ds-caption text-[var(--brand-700)]">Parsing in progress, extracting clinical entities...</p>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                  <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--brand-500)]" />
+                </div>
+              </div>
+            ) : null}
+          </div>
           <Button onClick={onParseFile} disabled={isParsing || !selectedFile}>
             {isParsing ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
             {isParsing ? "Parsing..." : "Parse and Save"}
           </Button>
         </div>
 
-        {selectedFile ? (
-          <p className="ds-caption mt-2 text-[var(--text-secondary)]">
-            Selected: {selectedFile.name} ({Math.max(1, Math.round(selectedFile.size / 1024))} KB)
-          </p>
-        ) : null}
         {error ? <p className="ds-body mt-3 text-rose-700">{error}</p> : null}
       </Card>
 
@@ -149,6 +217,9 @@ export function IngestionWorkspace() {
                     <p className="ds-caption text-[var(--text-secondary)]">
                       Patient ID: {row.patientId} · Age: {row.age ?? "-"} · Gender: {row.gender ?? "-"}
                     </p>
+                    <p className="ds-caption text-[var(--text-secondary)]">
+                      Uploaded: {formatDateTime(row.extractedAt)}
+                    </p>
                   </button>
                 </li>
               ))
@@ -176,6 +247,9 @@ export function IngestionWorkspace() {
                     <p className="ds-body font-medium text-[var(--text-primary)]">{row.condition}</p>
                     <p className="ds-caption text-[var(--text-secondary)]">
                       Patient ID: {row.patientId} · {row.codeSystem}: {row.code}
+                    </p>
+                    <p className="ds-caption text-[var(--text-secondary)]">
+                      Uploaded: {formatDateTime(row.extractedAt)}
                     </p>
                   </button>
                 </li>
@@ -287,6 +361,94 @@ export function IngestionWorkspace() {
           Step 1 ingestion and Step 2 NLP querying are independent modules in this hackathon MVP.
         </p>
       </Card>
+
+      {parseDebug ? (
+        <Card className="fade-in-up">
+          <details>
+            <summary className="ds-body cursor-pointer font-medium text-[var(--text-primary)]">
+              Parser Debug Panel
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                <p className="ds-caption font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                  Parse Summary
+                </p>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Source File: <span className="ds-body text-[var(--text-primary)]">{parseDebug.sourceFileName}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Parser Mode: <span className="ds-body text-[var(--text-primary)]">{parseDebug.parserMode}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Demographics Rows: <span className="ds-body text-[var(--text-primary)]">{parseDebug.demographicsRows}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Medical Rows: <span className="ds-body text-[var(--text-primary)]">{parseDebug.medicalRows}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Extraction Source: <span className="ds-body text-[var(--text-primary)]">{parseDebug.extractionSource ?? "-"}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Extracted Text Length: <span className="ds-body text-[var(--text-primary)]">{parseDebug.extractedTextLength ?? 0}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Final Parser Text Length: <span className="ds-body text-[var(--text-primary)]">{parseDebug.finalTextLength ?? 0}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Used Gemini Transcription: <span className="ds-body text-[var(--text-primary)]">{parseDebug.usedTranscription ? "Yes" : "No"}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Gemini Failure Reason: <span className="ds-body text-[var(--text-primary)]">{parseDebug.geminiFailureReason ?? "-"}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)]">
+                    Transcription Model: <span className="ds-body text-[var(--text-primary)]">{parseDebug.transcriptionModel ?? "-"}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                <p className="ds-caption font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                  Field Completeness Checks
+                </p>
+                <ul className="mt-2 space-y-1">
+                  <li className="ds-caption text-[var(--text-secondary)]">
+                    Demographics missing name: <span className="ds-body text-[var(--text-primary)]">{parseDebug.demographicsMissingName}</span>
+                  </li>
+                  <li className="ds-caption text-[var(--text-secondary)]">
+                    Demographics missing gender: <span className="ds-body text-[var(--text-primary)]">{parseDebug.demographicsMissingGender}</span>
+                  </li>
+                  <li className="ds-caption text-[var(--text-secondary)]">
+                    Medical rows missing condition: <span className="ds-body text-[var(--text-primary)]">{parseDebug.medicalMissingCondition}</span>
+                  </li>
+                  <li className="ds-caption text-[var(--text-secondary)]">
+                    Medical rows missing code: <span className="ds-body text-[var(--text-primary)]">{parseDebug.medicalMissingCode}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                  <p className="ds-caption font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                    Mapped Demographics Preview
+                  </p>
+                  <pre className="mt-2 max-h-[200px] overflow-auto rounded-[var(--ds-radius-sm)] bg-[var(--code-bg)] p-3 text-xs text-[var(--code-fg)]">
+{JSON.stringify(parseDebug.previewDemographics ?? null, null, 2)}
+                  </pre>
+                </div>
+                <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                  <p className="ds-caption font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                    Mapped Medical Preview
+                  </p>
+                  <pre className="mt-2 max-h-[200px] overflow-auto rounded-[var(--ds-radius-sm)] bg-[var(--code-bg)] p-3 text-xs text-[var(--code-fg)]">
+{JSON.stringify(parseDebug.previewMedical ?? null, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </details>
+        </Card>
+      ) : null}
 
       <div className="ds-caption flex items-center gap-2 text-[var(--text-secondary)]">
         <FileUp size={14} />

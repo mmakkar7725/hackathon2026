@@ -164,6 +164,34 @@ body {
   animation: fadeInUp 0.5s ease-out both;
 }
 
+.file-input-accent {
+  color: var(--text-secondary);
+}
+
+.file-input-accent::file-selector-button {
+  margin-right: 0.75rem;
+  border: 1px solid var(--brand-500);
+  border-radius: var(--ds-radius-sm);
+  background: var(--surface-2);
+  color: var(--brand-700);
+  font: var(--ds-font-body-base);
+  font-weight: 600;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.file-input-accent:hover::file-selector-button {
+  background: var(--brand-500);
+  border-color: var(--brand-600);
+  color: #ffffff;
+}
+
+.file-input-accent:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-500) 55%, transparent);
+  outline-offset: 2px;
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
