@@ -31,6 +31,22 @@ interface IntakeGeminiTextSuccess {
   model: string;
 }
 
+function buildGeminiRequestInit(body: string) {
+  const allowInsecureTls = process.env.GEMINI_ALLOW_INSECURE_TLS === "true";
+
+  if (allowInsecureTls) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  }
+
+  return {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body,
+  } satisfies RequestInit;
+}
+
 type LooseObject = Record<string, unknown>;
 
 function resolveGeminiModelName(model: string) {
@@ -47,6 +63,22 @@ function extractTextFromGeminiResponse(payload: unknown): string {
   };
 
   return response.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+}
+
+async function parseGeminiJsonResponse(response: Response): Promise<{ ok: true; payload: unknown } | { ok: false; detail: string }> {
+  try {
+    const payload = (await response.json()) as unknown;
+    return { ok: true, payload };
+  } catch {
+    const rawText = await response.text().catch(() => "");
+    const preview = rawText.replace(/\s+/g, " ").slice(0, 220);
+    return {
+      ok: false,
+      detail: preview
+        ? `Gemini endpoint returned non-JSON response: ${preview}`
+        : "Gemini endpoint returned non-JSON response.",
+    };
+  }
 }
 
 function asRecord(value: unknown): LooseObject {
@@ -147,36 +179,44 @@ export async function parseFileWithGemini(input: {
     `Source file name: ${input.fileName}`,
   ].join("\n");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: prompt },
-              {
-                inline_data: {
-                  mime_type: input.fileType || "application/octet-stream",
-                  data: input.base64Data,
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
+      buildGeminiRequestInit(
+        JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: input.fileType || "application/octet-stream",
+                    data: input.base64Data,
+                  },
                 },
-              },
-            ],
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 1200,
+            responseMimeType: "application/json",
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1200,
-          responseMimeType: "application/json",
-        },
-      }),
-    }
-  );
+        })
+      )
+    );
+  } catch (cause) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail:
+        cause instanceof Error
+          ? `Gemini request failed: ${cause.message}`
+          : "Gemini request failed due to network/runtime error.",
+    };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -187,7 +227,16 @@ export async function parseFileWithGemini(input: {
     };
   }
 
-  const payload = (await response.json()) as unknown;
+  const jsonResult = await parseGeminiJsonResponse(response);
+  if (!jsonResult.ok) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail: jsonResult.detail,
+    };
+  }
+
+  const payload = jsonResult.payload;
   const text = extractTextFromGeminiResponse(payload);
   if (!text) {
     return {
@@ -238,35 +287,43 @@ export async function transcribeFileWithGemini(input: {
     `Source file name: ${input.fileName}`,
   ].join("\n");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: prompt },
-              {
-                inline_data: {
-                  mime_type: input.fileType || "application/octet-stream",
-                  data: input.base64Data,
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
+      buildGeminiRequestInit(
+        JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: input.fileType || "application/octet-stream",
+                    data: input.base64Data,
+                  },
                 },
-              },
-            ],
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 1800,
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1800,
-        },
-      }),
-    }
-  );
+        })
+      )
+    );
+  } catch (cause) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail:
+        cause instanceof Error
+          ? `Gemini transcription failed: ${cause.message}`
+          : "Gemini transcription failed due to network/runtime error.",
+    };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -277,7 +334,16 @@ export async function transcribeFileWithGemini(input: {
     };
   }
 
-  const payload = (await response.json()) as unknown;
+  const jsonResult = await parseGeminiJsonResponse(response);
+  if (!jsonResult.ok) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail: jsonResult.detail,
+    };
+  }
+
+  const payload = jsonResult.payload;
   const text = extractTextFromGeminiResponse(payload).trim();
 
   if (!text) {
@@ -325,28 +391,36 @@ export async function parseTextWithGemini(input: {
     input.text,
   ].join("\n");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`,
+      buildGeminiRequestInit(
+        JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 1400,
+            responseMimeType: "application/json",
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1400,
-          responseMimeType: "application/json",
-        },
-      }),
-    }
-  );
+        })
+      )
+    );
+  } catch (cause) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail:
+        cause instanceof Error
+          ? `Gemini text-to-JSON parse failed: ${cause.message}`
+          : "Gemini text-to-JSON parse failed due to network/runtime error.",
+    };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -357,7 +431,16 @@ export async function parseTextWithGemini(input: {
     };
   }
 
-  const payload = (await response.json()) as unknown;
+  const jsonResult = await parseGeminiJsonResponse(response);
+  if (!jsonResult.ok) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      detail: jsonResult.detail,
+    };
+  }
+
+  const payload = jsonResult.payload;
   const text = extractTextFromGeminiResponse(payload);
   if (!text) {
     return {

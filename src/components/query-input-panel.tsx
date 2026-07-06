@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, MicOff, WandSparkles } from "lucide-react";
+import { Mic, MicOff, PlayCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 interface QueryInputPanelProps {
   prompt: string;
   onPromptChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmitAndExecute: () => void;
   isTranslating: boolean;
+  isExecuting: boolean;
   useGeminiAssist: boolean;
   onGeminiToggle: (value: boolean) => void;
   isListening: boolean;
@@ -21,14 +22,16 @@ interface QueryInputPanelProps {
 export function QueryInputPanel({
   prompt,
   onPromptChange,
-  onSubmit,
+  onSubmitAndExecute,
   isTranslating,
+  isExecuting,
   useGeminiAssist,
   onGeminiToggle,
   isListening,
   isSpeechSupported,
   onStartVoice,
 }: QueryInputPanelProps) {
+  const isBusy = isTranslating || isExecuting;
   return (
     <Card>
       <h2 className="ds-h1 mb-2 text-[var(--text-primary)]">
@@ -46,19 +49,24 @@ export function QueryInputPanel({
       />
 
       <div className="mt-4 flex flex-wrap items-center gap-2.5">
-        <Button onClick={onSubmit} size="lg" disabled={!prompt.trim() || isTranslating}>
-          <WandSparkles size={16} /> {isTranslating ? "Translating..." : "Convert to SQL"}
+        <Button onClick={onSubmitAndExecute} size="lg" disabled={!prompt.trim() || isBusy}>
+          <PlayCircle size={16} />
+          {isExecuting ? "Running pipeline..." : "Translate & Execute"}
         </Button>
+
         <Button
           onClick={onStartVoice}
           variant="secondary"
           size="lg"
-          disabled={!isSpeechSupported || isTranslating}
+          disabled={!isSpeechSupported || isBusy}
         >
           {isListening ? <MicOff size={16} /> : <Mic size={16} />}
           {isListening ? "Listening..." : "Voice Input"}
         </Button>
       </div>
+      <p className="ds-caption mt-2 text-[var(--text-muted)]">
+        Translates your clinical question to SQL and immediately runs it against ingested Step 1 patient data.
+      </p>
 
       <label className="ds-body mt-4 flex items-center gap-2 text-[var(--text-secondary)]">
         <input

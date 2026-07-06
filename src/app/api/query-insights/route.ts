@@ -96,15 +96,18 @@ function buildFallbackInsights(body: QueryInsightsRequest): GeminiInsights {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = (await request.json()) as QueryInsightsRequest;
+  const model = resolveGeminiModelName(process.env.GEMINI_MODEL ?? "models/gemini-2.5-flash");
+  let body: QueryInsightsRequest = {};
 
-    if (!body.prompt) {
-      return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  try {
+    try {
+      body = (await request.json()) as QueryInsightsRequest;
+    } catch {
+      body = {};
     }
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    const model = resolveGeminiModelName(process.env.GEMINI_MODEL ?? "models/gemini-2.5-flash");
+    const effectivePrompt = body.prompt?.trim() || "Clinical cohort query analysis";
 
     if (!apiKey) {
       return NextResponse.json({
@@ -121,7 +124,7 @@ export async function POST(request: NextRequest) {
       "relaxationAdvice: array of objects with droppedFilter, additionalPatients, rationale.",
       "patientJoinChances: array of objects with patientId, fullName, chancePercent (0-100), reason.",
       "Do not invent patients. Use provided values and calibrate chances conservatively.",
-      `Prompt: ${body.prompt}`,
+      `Prompt: ${effectivePrompt}`,
       `Matched patients: ${body.totalPatients ?? 0}`,
       `Total candidates: ${body.totalCandidates ?? 0}`,
       `Relaxation stats: ${JSON.stringify(body.relaxationStats ?? [])}`,
@@ -176,6 +179,10 @@ export async function POST(request: NextRequest) {
       model,
     });
   } catch {
-    return NextResponse.json({ error: "Unable to generate query insights." }, { status: 500 });
+    return NextResponse.json({
+      ...buildFallbackInsights(body),
+      source: "fallback",
+      model,
+    });
   }
 }

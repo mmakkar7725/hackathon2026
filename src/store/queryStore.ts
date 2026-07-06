@@ -27,7 +27,7 @@ export const useQueryStore = create<QueryStoreState>()(
           currentResult: result,
           history: [result, ...state.history.filter((item) => item.id !== result.id)].slice(
             0,
-            12
+            6
           ),
         })),
       loadFromHistory: (id) =>

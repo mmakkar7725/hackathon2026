@@ -20,6 +20,102 @@ function decodeAsText(buffer: ArrayBuffer) {
   }
 }
 
+function decodePdfEscapedString(input: string) {
+  let output = "";
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (char !== "\\") {
+      output += char;
+      continue;
+    }
+
+    const next = input[index + 1];
+    if (!next) {
+      break;
+    }
+
+    if (/[0-7]/.test(next)) {
+      const octal = input.slice(index + 1, index + 4).match(/^[0-7]{1,3}/)?.[0] ?? next;
+      output += String.fromCharCode(parseInt(octal, 8));
+      index += octal.length;
+      continue;
+    }
+
+    if (next === "n") {
+      output += "\n";
+      index += 1;
+      continue;
+    }
+    if (next === "r") {
+      output += "\r";
+      index += 1;
+      continue;
+    }
+    if (next === "t") {
+      output += "\t";
+      index += 1;
+      continue;
+    }
+    if (next === "b") {
+      output += "\b";
+      index += 1;
+      continue;
+    }
+    if (next === "f") {
+      output += "\f";
+      index += 1;
+      continue;
+    }
+
+    output += next;
+    index += 1;
+  }
+
+  return output;
+}
+
+function extractRawPdfText(buffer: ArrayBuffer) {
+  const source = Buffer.from(new Uint8Array(buffer)).toString("latin1");
+  const textFragments: string[] = [];
+
+  const pushFragment = (value: string) => {
+    const cleaned = decodePdfEscapedString(value)
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (cleaned.length >= 2) {
+      textFragments.push(cleaned);
+    }
+  };
+
+  const textObjects = source.match(/BT[\s\S]*?ET/g) ?? [];
+  for (const block of textObjects) {
+    const tjMatches = block.match(/\((?:\\.|[^\\)])*\)\s*Tj/g) ?? [];
+    for (const token of tjMatches) {
+      const inner = token.match(/\(((?:\\.|[^\\)])*)\)\s*Tj/);
+      if (inner?.[1]) {
+        pushFragment(inner[1]);
+      }
+    }
+
+    const tjArrayMatches = block.match(/\[(?:[^\]]|\\\]) *\]\s*TJ/g) ?? [];
+    for (const token of tjArrayMatches) {
+      const strings = token.match(/\((?:\\.|[^\\)])*\)/g) ?? [];
+      for (const wrapped of strings) {
+        pushFragment(wrapped.slice(1, -1));
+      }
+    }
+  }
+
+  if (textFragments.length === 0) {
+    return "";
+  }
+
+  return textFragments.join("\n");
+}
+
 function scoreTextQuality(text: string) {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -56,6 +152,10 @@ function shouldTranscribeText(input: {
     return true;
   }
 
+  if (input.extractionSource === "pdf-no-text") {
+    return true;
+  }
+
   if (input.geminiFailedReason === "invalid-json") {
     return true;
   }
@@ -71,12 +171,32 @@ async function extractTextForFallback(input: {
   const isPdf =
     input.fileType === "application/pdf" || input.fileName.toLowerCase().endsWith(".pdf");
 
+  const lowerName = input.fileName.toLowerCase();
+  const isLikelyTextFile =
+    input.fileType.startsWith("text/") ||
+    lowerName.endsWith(".txt") ||
+    lowerName.endsWith(".csv") ||
+    lowerName.endsWith(".json") ||
+    lowerName.endsWith(".md") ||
+    lowerName.endsWith(".xml");
+
   if (!isPdf) {
+    if (!isLikelyTextFile) {
+      return {
+        text: "",
+        source: "binary-nontext" as const,
+        extractorFailureDetail: "Binary file type needs OCR/transcription (image/video/audio).",
+      };
+    }
+
     return {
       text: decodeAsText(input.buffer),
       source: "binary-decode" as const,
+      extractorFailureDetail: undefined as string | undefined,
     };
   }
+
+  let extractorFailureDetail: string | undefined;
 
   try {
     const pdfModule = await import("pdf-parse");
@@ -91,8 +211,11 @@ async function extractTextForFallback(input: {
         return {
           text: result.text,
           source: "pdf-parse" as const,
+          extractorFailureDetail: undefined,
         };
       }
+
+      extractorFailureDetail = "pdf-parse returned no readable text for this PDF.";
     }
 
     const defaultExport = (pdfModule as unknown as { default?: unknown }).default;
@@ -109,16 +232,32 @@ async function extractTextForFallback(input: {
         return {
           text,
           source: "pdf-parse-legacy" as const,
+          extractorFailureDetail: undefined,
         };
       }
+
+      extractorFailureDetail = "pdf-parse legacy parser returned no readable text for this PDF.";
     }
-  } catch {
-    // Fall through to plain decode when PDF parser cannot extract text.
+  } catch (cause) {
+    extractorFailureDetail =
+      cause instanceof Error ? `pdf-parse failed: ${cause.message}` : "pdf-parse failed with unknown error.";
   }
 
+  const rawPdfText = extractRawPdfText(input.buffer);
+  if (rawPdfText.trim().length > 40) {
+    return {
+      text: rawPdfText,
+      source: "pdf-raw-text" as const,
+      extractorFailureDetail,
+    };
+  }
+
+  extractorFailureDetail = `${extractorFailureDetail ?? "PDF extraction failed."} Raw PDF text fallback found no meaningful text.`;
+
   return {
-    text: decodeAsText(input.buffer),
-    source: "binary-decode" as const,
+    text: "",
+    source: "pdf-no-text" as const,
+    extractorFailureDetail,
   };
 }
 
@@ -357,6 +496,22 @@ export async function POST(request: NextRequest) {
       "arrayBuffer" in filePart &&
       "name" in filePart;
 
+    if (!isFileLike && manualText) {
+      return NextResponse.json(
+        buildFallbackResponse({
+          text: manualText,
+          sourceFileName: "Manual Parsed Text",
+          statusDetail: "Parsed from pasted text input using deterministic fallback parser.",
+          parseMeta: {
+            extractionSource: "manual-text",
+            extractedTextLength: manualText.length,
+            finalTextLength: manualText.length,
+            usedTranscription: false,
+          },
+        })
+      );
+    }
+
     if (!isFileLike) {
       return NextResponse.json(
         {
@@ -386,6 +541,7 @@ export async function POST(request: NextRequest) {
       extractedTextLength: extractedText.trim().length,
       finalTextLength: text.length,
       usedTranscription: false,
+      extractorFailureDetail: extracted.extractorFailureDetail,
     };
 
     let gemini: Awaited<ReturnType<typeof parseFileWithGemini>> | null = null;
@@ -396,8 +552,16 @@ export async function POST(request: NextRequest) {
         fileType: file.type,
         base64Data,
       });
-    } catch {
+    } catch (cause) {
       gemini = null;
+      parseMeta = {
+        ...parseMeta,
+        geminiFailureReason: "request-exception",
+        transcriptionFailureDetail:
+          cause instanceof Error
+            ? `Gemini file parse request failed: ${cause.message}`
+            : "Gemini file parse request failed.",
+      };
     }
 
     if (gemini?.ok) {
@@ -509,9 +673,42 @@ export async function POST(request: NextRequest) {
 
           return NextResponse.json(ocrFallbackResponse);
         }
-      } catch {
-        // Ignore OCR fallback errors and continue to local fallback status.
+
+        parseMeta = {
+          ...parseMeta,
+          geminiFailureReason: transcription.reason,
+          transcriptionFailureDetail: transcription.detail,
+        };
+      } catch (cause) {
+        parseMeta = {
+          ...parseMeta,
+          geminiFailureReason: "request-exception",
+          transcriptionFailureDetail:
+            cause instanceof Error
+              ? `Gemini transcription request failed: ${cause.message}`
+              : "Gemini transcription request failed.",
+        };
       }
+    }
+
+    const noReadableTextFromBinarySource =
+      !text.trim() &&
+      (parseMeta.extractionSource === "binary-nontext" || parseMeta.extractionSource === "pdf-no-text");
+
+    if (noReadableTextFromBinarySource) {
+      return NextResponse.json({
+        demographics: [],
+        medicalHistory: [],
+        parserMode: "fallback",
+        statusLabel: "Transcription Unavailable",
+        statusDetail:
+          parseMeta.transcriptionFailureDetail ??
+          "No readable text could be extracted from this file in the current environment. Paste parsed text and retry.",
+        parseMeta: {
+          ...parseMeta,
+          finalTextLength: 0,
+        },
+      } satisfies IntakeParseResponse);
     }
 
     const fallbackResponse = buildFallbackResponse({

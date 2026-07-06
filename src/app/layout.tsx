@@ -29,6 +29,12 @@ export default function RootLayout({
       lang="en"
       className={`${bodyFont.variable} ${monoFont.variable} h-full antialiased`}
     >
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://ds.cdn.questdiagnostics.com/DS-Icons.css"
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

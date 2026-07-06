@@ -6,7 +6,17 @@ import {
 } from "@/types/medical";
 
 function extractAgeFilters(text: string, filters: QueryFilters, steps: string[]) {
-  const aboveMatch = text.match(/(?:above|over|older than|greater than)\s*(\d{1,3})/i);
+  const middleAgeMatch = /\bmiddle\s*-?\s*age(?:d)?\b|\bmid\s*-?\s*life\b/i.test(text);
+  if (middleAgeMatch) {
+    // Practical hackathon default band for "middle-aged" cohorts.
+    filters.ageMin = 35;
+    filters.ageMax = 60;
+    steps.push("Detected age band: middle-aged (35-60 years).");
+  }
+
+  const aboveMatch = text.match(
+    /(?:age\s*(?:more\s*than|more\s*then|above|over)|more\s*than|more\s*then|above|over|older\s*than|greater\s*than)\s*(\d{1,3})/i
+  );
   if (aboveMatch) {
     filters.ageMin = Number(aboveMatch[1]);
     steps.push(`Detected age threshold: age > ${filters.ageMin}.`);

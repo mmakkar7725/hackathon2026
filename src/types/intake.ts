@@ -34,5 +34,7 @@ export interface IntakeParseResponse {
     usedTranscription?: boolean;
     transcriptionModel?: string;
     geminiFailureReason?: string;
+    extractorFailureDetail?: string;
+    transcriptionFailureDetail?: string;
   };
 }

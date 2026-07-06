@@ -1,6 +1,16 @@
 import { medicalDictionary } from "@/data/medicalDictionary";
 import { DemographicsRecord, MedicalHistoryRecord } from "@/types/intake";
 
+function normalizeClinicalText(raw: string) {
+  return raw
+    .replace(/<PARSED TEXT FOR PAGE:[^>]+>/gi, "")
+    .replace(/\r/g, "\n")
+    .replace(/\uFFFD/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function findFirstMatch(input: string, expressions: RegExp[]) {
   for (const expression of expressions) {
     const match = input.match(expression);
@@ -167,11 +177,52 @@ function extractProblemListConditions(text: string) {
   });
 }
 
+function extractDiagnosedWithConditions(input: {
+  text: string;
+  sourceFileName: string;
+  patientId: string;
+  now: number;
+}) {
+  const entries: MedicalHistoryRecord[] = [];
+  const regex = /diagnosed\s+with\s+([a-z][a-z0-9\-\s/]{2,80})(?:\.|,|\n|;)/gi;
+
+  let match: RegExpExecArray | null = regex.exec(input.text);
+  let index = 0;
+
+  while (match) {
+    const raw = match[1]?.trim();
+    if (raw) {
+      const condition = raw
+        .replace(/\s+/g, " ")
+        .replace(/\bthe\b/gi, "")
+        .trim();
+
+      if (condition.length >= 3) {
+        entries.push({
+          id: `med-dx-${input.now}-${index}`,
+          sourceFileName: input.sourceFileName,
+          patientId: input.patientId,
+          condition,
+          codeSystem: "UNKNOWN",
+          code: "N/A",
+          note: "Extracted from narrative diagnosis statement.",
+          extractedAt: input.now,
+        });
+        index += 1;
+      }
+    }
+
+    match = regex.exec(input.text);
+  }
+
+  return entries;
+}
+
 export function parseTextToRecords(input: {
   text: string;
   sourceFileName: string;
 }) {
-  const text = input.text;
+  const text = normalizeClinicalText(input.text);
   const lower = text.toLowerCase();
   const now = Date.now();
 
@@ -229,8 +280,15 @@ export function parseTextToRecords(input: {
     extractedAt: now,
   }));
 
+  const narrativeDiagnoses = extractDiagnosedWithConditions({
+    text,
+    sourceFileName: input.sourceFileName,
+    patientId,
+    now,
+  });
+
   const uniqueByCode = new Map<string, MedicalHistoryRecord>();
-  for (const record of [...icdFromText, ...dictionaryMatches, ...problemListMatches]) {
+  for (const record of [...icdFromText, ...dictionaryMatches, ...problemListMatches, ...narrativeDiagnoses]) {
     const key =
       record.codeSystem === "UNKNOWN" && record.code === "N/A"
         ? `${record.codeSystem}:${record.code}:${record.condition.toLowerCase()}`

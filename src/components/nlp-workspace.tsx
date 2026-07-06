@@ -1,7 +1,7 @@
 "use client";
 
-import { BrainCircuit, Database } from "lucide-react";
-import { useCallback, useState } from "react";
+import { BrainCircuit, CheckCircle2, Circle, Database, Loader2 } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 
 import { HistoryPanel } from "@/components/history-panel";
 import { MedicalConceptsPanel } from "@/components/medical-concepts-panel";
@@ -33,11 +33,115 @@ interface QueryInsightsResponse {
   model?: string;
 }
 
+type TimelineKey = "entities" | "filters" | "sql" | "patients";
+type TimelineStatus = "pending" | "active" | "done";
+
+type TimelineState = Record<TimelineKey, TimelineStatus>;
+
+function createDefaultTimelineState(): TimelineState {
+  return {
+    entities: "pending",
+    filters: "pending",
+    sql: "pending",
+    patients: "pending",
+  };
+}
+
+function countInferredFilters(filters: QueryResult["filters"]) {
+  const values = Object.values(filters ?? {});
+  return values.filter((value) => {
+    if (value === null || value === undefined) {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+
+    return true;
+  }).length;
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function escapeCsvCell(value: string | number | null | undefined) {
+  const text = value === null || value === undefined ? "" : String(value);
+  const escaped = text.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+function formatTimestamp(value: string | number | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString();
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildLocalInsights(output: Step1QueryRunResult): QueryInsightsResponse {
+  const relaxationAdvice = output.relaxationStats
+    .filter((item) => item.additionalPatients > 0)
+    .slice(0, 3)
+    .map((item) => ({
+      droppedFilter: item.droppedFilter,
+      additionalPatients: item.additionalPatients,
+      rationale: `Dropping ${item.droppedFilter} may include ${item.additionalPatients} more patients.`,
+    }));
+
+  const patientJoinChances = output.nearMisses.slice(0, 5).map((item) => ({
+    patientId: item.patientId,
+    fullName: item.fullName,
+    chancePercent: item.chanceToJoinPercent,
+    reason:
+      item.missingCriteria.length > 0
+        ? `Near match. Missing: ${item.missingCriteria.join(", ")}.`
+        : "Near match based on current filters.",
+  }));
+
+  return {
+    overview: `Current query matched ${output.totalPatients} out of ${output.totalCandidates} ingested patients.`,
+    relaxationAdvice,
+    patientJoinChances,
+    source: "fallback",
+    model: "local-fallback",
+  };
+}
+
 export function NlpWorkspace() {
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [isRunningOnStep1, setIsRunningOnStep1] = useState(false);
+  const pipelineSectionRef = useRef<HTMLElement | null>(null);
+  const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState<"idle" | "translating" | "executing" | "insights" | "done">("idle");
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
-  const [useGeminiAssist, setUseGeminiAssist] = useState(false);
+  const [useGeminiAssist, setUseGeminiAssist] = useState(true);
+  const [timelineState, setTimelineState] = useState<TimelineState>(createDefaultTimelineState());
+  const [timelineFacts, setTimelineFacts] = useState({
+    entitiesFound: 0,
+    filtersInferred: 0,
+    sqlBuilt: false,
+    patientsMatched: 0,
+  });
   const [step1Result, setStep1Result] = useState<Step1QueryRunResult | null>(null);
   const [queryInsights, setQueryInsights] = useState<QueryInsightsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,135 +156,403 @@ export function NlpWorkspace() {
     clearHistory,
   } = useQueryStore();
 
-  const runTranslation = useCallback(async () => {
+  const downloadMatchedPatientsCsv = useCallback(() => {
+    if (!step1Result || step1Result.rows.length === 0) {
+      return;
+    }
+
+    const header = [
+      "Patient ID",
+      "Full Name",
+      "Age",
+      "Gender",
+      "Matched Conditions",
+      "Matched Codes",
+      "Last Uploaded",
+    ];
+
+    const lines = step1Result.rows.map((row) => [
+      row.patientId,
+      row.fullName,
+      row.age ?? "",
+      row.gender ?? "",
+      row.matchedConditions.join(", "),
+      row.matchedCodes.join(", "),
+      formatTimestamp(row.latestUploadAt),
+    ]);
+
+    const csv = [header, ...lines]
+      .map((line) => line.map((cell) => escapeCsvCell(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const dateTag = new Date().toISOString().slice(0, 10);
+    anchor.href = url;
+    anchor.download = `matched-patients-${dateTag}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }, [step1Result]);
+
+  const downloadMatchedPatientsPdf = useCallback(() => {
+    if (!step1Result || step1Result.rows.length === 0) {
+      return;
+    }
+
+    const rowsHtml = step1Result.rows
+      .map((row) => {
+        const demographics = `Age: ${row.age ?? "-"} | Gender: ${row.gender ?? "-"}`;
+        return `
+          <tr>
+            <td>${escapeHtml(row.fullName)}</td>
+            <td>${escapeHtml(row.patientId)}</td>
+            <td>${escapeHtml(demographics)}</td>
+            <td>${escapeHtml(row.matchedConditions.join(", ") || "-")}</td>
+            <td>${escapeHtml(row.matchedCodes.join(", ") || "-")}</td>
+            <td>${escapeHtml(formatTimestamp(row.latestUploadAt))}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      setError("Popup blocked. Enable popups to export PDF.");
+      return;
+    }
+
+    const generatedAt = new Date().toLocaleString();
+    popup.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Matched Patients Report</title>
+          <style>
+            body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2937; }
+            h1 { margin: 0 0 8px; font-size: 20px; }
+            p { margin: 0 0 10px; font-size: 12px; color: #4b5563; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; font-size: 11px; text-align: left; vertical-align: top; }
+            th { background: #f3f4f6; }
+          </style>
+        </head>
+        <body>
+          <h1>Matched Patients Report</h1>
+          <p>Generated: ${escapeHtml(generatedAt)}</p>
+          <p>Matched Patients: ${step1Result.totalPatients} | Total Candidates: ${step1Result.totalCandidates}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Patient ID</th>
+                <th>Demographics</th>
+                <th>Matched Conditions</th>
+                <th>Matched Codes</th>
+                <th>Last Uploaded</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  }, [step1Result]);
+
+  const runTranslateAndExecute = useCallback(async () => {
     if (!prompt.trim()) {
       return;
     }
 
-    setIsTranslating(true);
+    const pipelineEl = pipelineSectionRef.current;
+    if (pipelineEl) {
+      const targetTop = Math.max(0, pipelineEl.getBoundingClientRect().top + window.scrollY - 72);
+      window.scrollTo({ top: targetTop, behavior: "smooth" });
+    }
+
+    setPipelineStep("idle");
+    setIsExecutingPipeline(true);
+    setStep1Result(null);
+    setQueryInsights(null);
     setError(null);
+    setTimelineState({
+      entities: "active",
+      filters: "pending",
+      sql: "pending",
+      patients: "pending",
+    });
+    setTimelineFacts({
+      entitiesFound: 0,
+      filtersInferred: 0,
+      sqlBuilt: false,
+      patientsMatched: 0,
+    });
+    setPipelineStep("translating");
+
+    let translated: QueryResult | null = null;
 
     try {
       const response = await fetch("/api/translate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          useGeminiAssist,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim(), useGeminiAssist }),
       });
 
       if (!response.ok) {
-        throw new Error("Translation failed.");
+        let errorMessage = "Translation failed.";
+        try {
+          const payload = (await response.json()) as { error?: string };
+          if (payload?.error) {
+            errorMessage = payload.error;
+          }
+        } catch {
+          // Ignore JSON parsing failures and keep the default message.
+        }
+
+        throw new Error(errorMessage);
       }
 
-      const result = (await response.json()) as QueryResult;
-      setResult(result);
-    } catch {
-      setError("Could not translate this query right now. Please try again.");
-    } finally {
-      setIsTranslating(false);
-    }
-  }, [prompt, setResult, useGeminiAssist]);
+      translated = (await response.json()) as QueryResult;
+      setResult(translated);
 
-  const runOnStep1Database = useCallback(() => {
-    if (!currentResult) {
+      const entitiesFound = translated.concepts.length;
+      const filtersInferred = countInferredFilters(translated.filters);
+      const sqlBuilt = Boolean(translated.sql?.trim());
+
+      setTimelineFacts((previous) => ({
+        ...previous,
+        entitiesFound,
+      }));
+      setTimelineState((previous) => ({
+        ...previous,
+        entities: "done",
+        filters: "active",
+      }));
+
+      await wait(180);
+
+      setTimelineFacts((previous) => ({
+        ...previous,
+        filtersInferred,
+      }));
+      setTimelineState((previous) => ({
+        ...previous,
+        filters: "done",
+        sql: "active",
+      }));
+
+      await wait(180);
+
+      setTimelineFacts((previous) => ({
+        ...previous,
+        sqlBuilt,
+      }));
+      setTimelineState((previous) => ({
+        ...previous,
+        sql: "done",
+        patients: "active",
+      }));
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Translation failed.";
+      setError(`Translation step failed: ${message}`);
+      setIsExecutingPipeline(false);
+      setTimelineState(createDefaultTimelineState());
+      setPipelineStep("idle");
       return;
     }
 
-    setIsRunningOnStep1(true);
-    setQueryInsights(null);
-    setError(null);
-
-    const runInsights = async (output: Step1QueryRunResult) => {
-      setIsGeneratingInsights(true);
-      try {
-        const response = await fetch("/api/query-insights", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            prompt: currentResult.input,
-            totalPatients: output.totalPatients,
-            totalCandidates: output.totalCandidates,
-            relaxationStats: output.relaxationStats,
-            nearMisses: output.nearMisses,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error("Insights failed");
-        }
-
-        const insights = (await response.json()) as QueryInsightsResponse;
-        setQueryInsights(insights);
-      } catch {
-        setError("Step 1 query ran, but Gemini insights are currently unavailable.");
-      } finally {
-        setIsGeneratingInsights(false);
-      }
-    };
+    setPipelineStep("executing");
+    const output = runQueryAgainstStep1Data(translated);
+    setStep1Result(output);
+    setTimelineFacts((previous) => ({
+      ...previous,
+      patientsMatched: output.totalPatients,
+    }));
+    setTimelineState((previous) => ({
+      ...previous,
+      patients: "done",
+    }));
+    setIsGeneratingInsights(true);
+    setPipelineStep("insights");
 
     try {
-      const output = runQueryAgainstStep1Data(currentResult);
-      setStep1Result(output);
-      void runInsights(output);
-    } finally {
-      setIsRunningOnStep1(false);
-    }
-  }, [currentResult]);
+      const insightsResponse = await fetch("/api/query-insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: translated.input,
+          totalPatients: output.totalPatients,
+          totalCandidates: output.totalCandidates,
+          relaxationStats: output.relaxationStats,
+          nearMisses: output.nearMisses,
+        }),
+      });
 
-  const { isListening, isSupported, startListening } = useSpeechInput((transcript) => {
+      if (insightsResponse.ok) {
+        const insights = (await insightsResponse.json()) as QueryInsightsResponse;
+        setQueryInsights(insights);
+      } else {
+        setQueryInsights(buildLocalInsights(output));
+        setError("Gemini insights unavailable. Showing deterministic fallback insights.");
+      }
+    } catch {
+      setQueryInsights(buildLocalInsights(output));
+      setError("Gemini insights unavailable. Showing deterministic fallback insights.");
+    } finally {
+      setIsGeneratingInsights(false);
+      setIsExecutingPipeline(false);
+      setPipelineStep("done");
+    }
+  }, [prompt, setResult, useGeminiAssist]);
+
+  const { isListening, isSupported, startListening } = useSpeechInput((transcript: string) => {
     setPrompt(transcript);
   });
 
   const concepts = currentResult?.concepts ?? [];
   const explanation = currentResult?.explanationSteps ?? [];
   const confidence = currentResult?.confidenceScore ?? 0;
+  const limitedPrompts = samplePrompts.slice(0, 2);
+  const limitedHistory = history.slice(0, 5);
   const sql =
     currentResult?.sql ??
     "-- SQL output will appear after you translate a natural language medical question.";
 
+  const compactTimeline = [
+    {
+      key: "entities" as const,
+      label: "Entities",
+      doneDetail: `${timelineFacts.entitiesFound}`,
+      activeDetail: "...",
+      pendingDetail: "-",
+    },
+    {
+      key: "filters" as const,
+      label: "Filters",
+      doneDetail: `${timelineFacts.filtersInferred}`,
+      activeDetail: "...",
+      pendingDetail: "-",
+    },
+    {
+      key: "sql" as const,
+      label: "SQL",
+      doneDetail: timelineFacts.sqlBuilt ? "Ready" : "Empty",
+      activeDetail: "...",
+      pendingDetail: "-",
+    },
+    {
+      key: "patients" as const,
+      label: "Patients",
+      doneDetail: `${timelineFacts.patientsMatched}`,
+      activeDetail: "...",
+      pendingDetail: "-",
+    },
+  ] as const;
+
   return (
     <>
-      <div className="fade-in-up rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 shadow-[var(--ds-elevation-1)]">
-        <div className="mb-1 flex flex-wrap items-center gap-2">
-          <Badge>
-            <BrainCircuit size={12} /> NLP Parsing
-          </Badge>
-          <Badge>
-            <Database size={12} /> SQL Generation
-          </Badge>
-          {currentResult?.translationMode === "gemini-assist" ? (
-            <Badge tone="success">Gemini Assist{currentResult.modelUsed ? ` (${currentResult.modelUsed})` : ""}</Badge>
+      <section
+        ref={pipelineSectionRef}
+        className="fade-in-up grid gap-4 lg:grid-cols-[1.2fr_1fr]"
+        style={{ animationDelay: "90ms" }}
+      >
+        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 shadow-[var(--ds-elevation-1)]">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <Badge>
+              <BrainCircuit size={12} /> NLP Parsing
+            </Badge>
+            <Badge>
+              <Database size={12} /> SQL Generation
+            </Badge>
+            {currentResult?.translationMode === "gemini-assist" ? (
+              <Badge tone="success">Gemini Assist{currentResult.modelUsed ? ` (${currentResult.modelUsed})` : ""}</Badge>
+            ) : (
+              <Badge tone="neutral">Deterministic Mode</Badge>
+            )}
+          </div>
+          {currentResult?.statusLabel ? (
+            <>
+              <p className="ds-body font-medium text-[var(--text-primary)]">Status: {currentResult.statusLabel}</p>
+              {currentResult.statusDetail ? (
+                <p className="ds-caption mt-1 text-[var(--text-secondary)]">{currentResult.statusDetail}</p>
+              ) : null}
+            </>
           ) : (
-            <Badge tone="neutral">Deterministic Mode</Badge>
+            <p className="ds-caption text-[var(--text-secondary)]">
+              Run a query translation to view processing status.
+            </p>
           )}
         </div>
-        {currentResult?.statusLabel ? (
-          <>
-            <p className="ds-body font-medium text-[var(--text-primary)]">Status: {currentResult.statusLabel}</p>
-            {currentResult.statusDetail ? (
-              <p className="ds-caption mt-1 text-[var(--text-secondary)]">{currentResult.statusDetail}</p>
-            ) : null}
-          </>
-        ) : (
-          <p className="ds-caption text-[var(--text-secondary)]">
-            Run a query translation to view processing status.
-          </p>
-        )}
-      </div>
 
-      <section className="fade-in-up grid gap-6 lg:grid-cols-[1.6fr_1fr]" style={{ animationDelay: "120ms" }}>
-        <div className="space-y-4">
+        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2.5 shadow-[var(--ds-elevation-1)]">
+          <p className="ds-caption mb-2 font-semibold tracking-[0.07em] text-[var(--text-secondary)] uppercase">Pipeline Timeline</p>
+          {pipelineStep === "idle" ? (
+            <p className="ds-caption text-[var(--text-secondary)]">
+              Run <strong>Translate &amp; Execute</strong> to populate the pipeline.
+            </p>
+          ) : (
+            <>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {compactTimeline.map((item) => {
+                  const status = timelineState[item.key];
+                  const isDone = status === "done";
+                  const isActive = status === "active";
+                  const detailText = isDone
+                    ? item.doneDetail
+                    : isActive
+                      ? item.activeDetail
+                      : item.pendingDetail;
+
+                  return (
+                    <div
+                      key={item.key}
+                      className={`min-w-[108px] rounded-[var(--ds-radius-sm)] border px-2 py-1.5 ${
+                        isDone
+                          ? "border-[var(--brand-500)] bg-[color:rgba(58,123,213,0.08)]"
+                          : isActive
+                            ? "border-[var(--brand-400)] bg-[var(--surface-1)]"
+                            : "border-[var(--border)] bg-[var(--surface-0)]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {isDone ? (
+                          <CheckCircle2 size={12} className="text-[var(--brand-600)]" />
+                        ) : isActive ? (
+                          <Loader2 size={12} className="animate-spin text-[var(--brand-600)]" />
+                        ) : (
+                          <Circle size={12} className="text-[var(--text-muted)]" />
+                        )}
+                        <p className="ds-caption font-medium text-[var(--text-primary)]">{item.label}</p>
+                      </div>
+                      <p className="ds-caption mt-0.5 text-[var(--text-secondary)]">{detailText}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              {pipelineStep === "done" && (
+                <p className="ds-caption mt-2 text-center font-medium text-[var(--brand-600)]">Pipeline complete.</p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="fade-in-up grid gap-4 lg:grid-cols-[1.1fr_1fr]" style={{ animationDelay: "120ms" }}>
+        <div className="space-y-3">
           <QueryInputPanel
             prompt={prompt}
             onPromptChange={setPrompt}
-            onSubmit={runTranslation}
-            isTranslating={isTranslating}
+            onSubmitAndExecute={runTranslateAndExecute}
+            isTranslating={isExecutingPipeline && pipelineStep === "translating"}
+            isExecuting={isExecutingPipeline}
             useGeminiAssist={useGeminiAssist}
             onGeminiToggle={setUseGeminiAssist}
             isListening={isListening}
@@ -188,147 +560,188 @@ export function NlpWorkspace() {
             onStartVoice={startListening}
           />
           {error ? <p className="ds-body text-rose-700">{error}</p> : null}
-          <SamplePrompts prompts={samplePrompts} onPick={setPrompt} />
+          <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-2">
+            <summary className="ds-caption cursor-pointer font-semibold text-[var(--text-primary)]">Sample Queries</summary>
+            <div className="mt-2">
+              <SamplePrompts prompts={limitedPrompts} onPick={setPrompt} />
+            </div>
+          </details>
         </div>
-        <HistoryPanel history={history} onLoad={loadFromHistory} onClear={clearHistory} />
-      </section>
 
-      <section className="fade-in-up grid gap-6 lg:grid-cols-2" style={{ animationDelay: "220ms" }}>
-        <SqlOutput sql={sql} />
-        <MedicalConceptsPanel concepts={concepts} confidenceScore={confidence} />
-      </section>
-
-      <section className="fade-in-up rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-4 shadow-[var(--ds-elevation-1)]" style={{ animationDelay: "260ms" }}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-4 shadow-[var(--ds-elevation-1)]">
           <div>
-            <h3 className="ds-h1 text-[18px] text-[var(--text-primary)]">Execute Query Against Step 1 Clinical Dataset</h3>
-            <p className="ds-caption mt-1 text-[var(--text-secondary)]">
-              Execute the generated query filters on ingested demographics and medical history rows.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={runOnStep1Database}
-            disabled={!currentResult || isRunningOnStep1}
-            className="ds-body inline-flex items-center justify-center rounded-[var(--ds-radius-sm)] border border-[var(--brand-500)] bg-[var(--surface-1)] px-3 py-2 font-medium text-[var(--brand-700)] transition hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isRunningOnStep1 ? "Running..." : "Run On Step 1 Data"}
-          </button>
-        </div>
-
-        {step1Result ? (
-          <div className="mt-4 space-y-3">
-            <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
-              <p className="ds-body font-medium text-[var(--text-primary)]">
-                Matched Patients: {step1Result.totalPatients}
-              </p>
+            <div>
+              <h3 className="ds-h1 text-[18px] text-[var(--text-primary)]">Clinical Dataset Query Results</h3>
               <p className="ds-caption mt-1 text-[var(--text-secondary)]">
-                Scanned {step1Result.scannedDemographics} demographics rows and {step1Result.scannedHistoryRows} medical history rows.
-              </p>
-              <p className="ds-caption mt-1 text-[var(--text-secondary)]">
-                Total candidates in Step 1: {step1Result.totalCandidates}
+                Patient records matched from Step 1 ingested data using the generated query filters.
               </p>
             </div>
+          </div>
 
-            {step1Result.rows.length > 0 ? (
-              <div className="max-h-[340px] overflow-auto rounded-[var(--ds-radius-sm)] border border-[var(--border)]">
-                <table className="min-w-full border-collapse">
-                  <thead className="bg-[var(--surface-1)]">
-                    <tr>
-                      <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Patient</th>
-                      <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Demographics</th>
-                      <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Conditions</th>
-                      <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Codes</th>
-                      <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Last Uploaded</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {step1Result.rows.map((row) => (
-                      <tr key={`${row.patientId}-${row.fullName}`} className="align-top">
-                        <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">
-                          <p className="ds-body font-medium">{row.fullName}</p>
-                          <p className="text-[var(--text-secondary)]">{row.patientId}</p>
-                        </td>
-                        <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
-                          Age: {row.age ?? "-"} | Gender: {row.gender ?? "-"}
-                        </td>
-                        <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
-                          {row.matchedConditions.length > 0 ? row.matchedConditions.join(", ") : "-"}
-                        </td>
-                        <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
-                          {row.matchedCodes.length > 0 ? row.matchedCodes.join(", ") : "-"}
-                        </td>
-                        <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
-                          {row.latestUploadAt ? new Date(row.latestUploadAt).toLocaleString() : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="ds-caption text-[var(--text-secondary)]">
-                No patients matched the generated query on current Step 1 data.
-              </p>
-            )}
-
-            <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3" open>
-              <summary className="ds-body cursor-pointer font-medium text-[var(--text-primary)]">Gemini Match Insights</summary>
-              {isGeneratingInsights ? (
-                <p className="ds-caption mt-2 text-[var(--text-secondary)]">Analyzing match expansion opportunities...</p>
-              ) : queryInsights ? (
-                <div className="mt-2 space-y-3">
-                  <p className="ds-caption text-[var(--text-secondary)]">{queryInsights.overview}</p>
-                  <p className="ds-caption text-[var(--text-secondary)]">
-                    Source: {queryInsights.source === "gemini" ? `Gemini (${queryInsights.model ?? "model"})` : "Deterministic fallback"}
+          {step1Result ? (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="ds-body font-medium text-[var(--text-primary)]">
+                    Matched Patients: {step1Result.totalPatients}
                   </p>
-
-                  <div>
-                    <p className="ds-caption font-medium text-[var(--text-primary)]">If we drop some filters:</p>
-                    <ul className="mt-1 space-y-1">
-                      {queryInsights.relaxationAdvice.length > 0 ? (
-                        queryInsights.relaxationAdvice.map((item) => (
-                          <li key={item.droppedFilter} className="ds-caption text-[var(--text-secondary)]">
-                            {item.droppedFilter}: +{item.additionalPatients} patients. {item.rationale}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="ds-caption text-[var(--text-secondary)]">No high-impact relaxation suggestion found.</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <p className="ds-caption font-medium text-[var(--text-primary)]">Patient join chances:</p>
-                    <ul className="mt-1 max-h-[180px] space-y-1 overflow-auto pr-1">
-                      {queryInsights.patientJoinChances.length > 0 ? (
-                        queryInsights.patientJoinChances.map((item) => (
-                          <li key={`${item.patientId}-${item.fullName}`} className="ds-caption text-[var(--text-secondary)]">
-                            {item.fullName} ({item.patientId}): {item.chancePercent}% chance. {item.reason}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="ds-caption text-[var(--text-secondary)]">No near-miss patients to score.</li>
-                      )}
-                    </ul>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadMatchedPatientsCsv}
+                      disabled={step1Result.rows.length === 0}
+                      className="ds-caption inline-flex items-center justify-center rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1.5 font-medium text-[var(--text-secondary)] transition hover:border-[var(--brand-400)] hover:text-[var(--brand-700)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Export CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadMatchedPatientsPdf}
+                      disabled={step1Result.rows.length === 0}
+                      className="ds-caption inline-flex items-center justify-center rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1.5 font-medium text-[var(--text-secondary)] transition hover:border-[var(--brand-400)] hover:text-[var(--brand-700)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Export PDF
+                    </button>
                   </div>
                 </div>
+                <p className="ds-caption mt-1 text-[var(--text-secondary)]">
+                  Scanned {step1Result.scannedDemographics} demographics rows and {step1Result.scannedHistoryRows} medical history rows.
+                </p>
+                <p className="ds-caption mt-1 text-[var(--text-secondary)]">
+                  Total candidates in Step 1: {step1Result.totalCandidates}
+                </p>
+              </div>
+
+              {step1Result.rows.length > 0 ? (
+                <div className="max-h-[340px] overflow-auto rounded-[var(--ds-radius-sm)] border border-[var(--border)]">
+                  <table className="min-w-full border-collapse">
+                    <thead className="bg-[var(--surface-1)]">
+                      <tr>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Patient</th>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Demographics</th>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Conditions</th>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Codes</th>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Last Uploaded</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {step1Result.rows.map((row) => (
+                        <tr key={`${row.patientId}-${row.fullName}`} className="align-top">
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">
+                            <p className="ds-body font-medium">{row.fullName}</p>
+                            <p className="text-[var(--text-secondary)]">{row.patientId}</p>
+                          </td>
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
+                            Age: {row.age ?? "-"} | Gender: {row.gender ?? "-"}
+                          </td>
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
+                            {row.matchedConditions.length > 0 ? row.matchedConditions.join(", ") : "-"}
+                          </td>
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
+                            {row.matchedCodes.length > 0 ? row.matchedCodes.join(", ") : "-"}
+                          </td>
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
+                            <span suppressHydrationWarning>{row.latestUploadAt ? new Date(row.latestUploadAt).toLocaleString() : "-"}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <p className="ds-caption mt-2 text-[var(--text-secondary)]">
-                  Run Step 1 execution to generate Gemini insights.
+                <p className="ds-caption text-[var(--text-secondary)]">
+                  No patients matched the generated query on current Step 1 data.
                 </p>
               )}
-            </details>
+            </div>
+          ) : (
+            <p className="ds-caption mt-3 text-[var(--text-secondary)]">
+              Use <strong>Translate &amp; Execute</strong> above to translate the query and immediately run it against ingested patient data.
+            </p>
+          )}
+
+          <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3" open>
+            <summary className="ds-body cursor-pointer font-medium text-[var(--text-primary)]">Gemini Match Insights</summary>
+            {isGeneratingInsights ? (
+              <div className="mt-2">
+                <p className="ds-caption text-[var(--text-secondary)]">Analyzing match expansion opportunities with Gemini...</p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                  <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--brand-500)]" />
+                </div>
+              </div>
+            ) : queryInsights ? (
+              <div className="mt-2 space-y-3">
+                <p className="ds-caption text-[var(--text-secondary)]">{queryInsights.overview}</p>
+                <p className="ds-caption text-[var(--text-secondary)]">
+                  Source: {queryInsights.source === "gemini" ? `Gemini (${queryInsights.model ?? "model"})` : "Deterministic fallback"}
+                </p>
+
+                <div>
+                  <p className="ds-caption font-medium text-[var(--text-primary)]">If we drop some filters:</p>
+                  <ul className="mt-1 space-y-1">
+                    {queryInsights.relaxationAdvice.length > 0 ? (
+                      queryInsights.relaxationAdvice.map((item) => (
+                        <li key={item.droppedFilter} className="ds-caption text-[var(--text-secondary)]">
+                          {item.droppedFilter}: +{item.additionalPatients} patients. {item.rationale}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="ds-caption text-[var(--text-secondary)]">No high-impact relaxation suggestion found.</li>
+                    )}
+                  </ul>
+                </div>
+
+                <div>
+                  <p className="ds-caption font-medium text-[var(--text-primary)]">Patient join chances:</p>
+                  <ul className="mt-1 max-h-[180px] space-y-1 overflow-auto pr-1">
+                    {queryInsights.patientJoinChances.length > 0 ? (
+                      queryInsights.patientJoinChances.map((item) => (
+                        <li key={`${item.patientId}-${item.fullName}`} className="ds-caption text-[var(--text-secondary)]">
+                          {item.fullName} ({item.patientId}): {item.chancePercent}% chance. {item.reason}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="ds-caption text-[var(--text-secondary)]">No near-miss patients to score.</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <p className="ds-caption mt-2 text-[var(--text-secondary)]">
+                Gemini insights will appear here automatically after the pipeline runs.
+              </p>
+            )}
+          </details>
+        </section>
+      </section>
+
+      <section className="fade-in-up" style={{ animationDelay: "285ms" }}>
+        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
+          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Recent Queries</summary>
+          <div className="mt-3">
+            <HistoryPanel history={limitedHistory} onLoad={loadFromHistory} onClear={clearHistory} />
           </div>
-        ) : (
-          <p className="ds-caption mt-3 text-[var(--text-secondary)]">
-            Translate a query first, then run it on Step 1 data to view patient matches.
-          </p>
-        )}
+        </details>
+      </section>
+
+      <section className="fade-in-up grid gap-6 lg:grid-cols-2" style={{ animationDelay: "280ms" }}>
+        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
+          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Generated SQL</summary>
+          <div className="mt-3">
+            <SqlOutput sql={sql} />
+          </div>
+        </details>
+
+        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
+          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Medical Concepts</summary>
+          <div className="mt-3">
+            <MedicalConceptsPanel concepts={concepts} confidenceScore={confidence} />
+          </div>
+        </details>
       </section>
 
       <section className="fade-in-up grid gap-6 lg:grid-cols-2" style={{ animationDelay: "300ms" }}>
-        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]" open>
+        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
           <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Query Explainability</summary>
           <div className="mt-3">
             <QueryExplanation

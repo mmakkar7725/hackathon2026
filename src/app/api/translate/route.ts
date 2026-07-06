@@ -74,14 +74,25 @@ export async function POST(request: NextRequest) {
     }
 
     const { conceptSummary, filterSummary } = summarizeBaseResult(baseResult);
-    const geminiResult = await refineSqlWithGemini({
-      prompt,
-      deterministicSql: baseResult.sql,
-      conceptSummary,
-      filterSummary,
-    });
+    let geminiResult: Awaited<ReturnType<typeof refineSqlWithGemini>> | null = null;
+    let geminiFailureReason: string | null = null;
 
-    if (!geminiResult) {
+    try {
+      geminiResult = await refineSqlWithGemini({
+        prompt,
+        deterministicSql: baseResult.sql,
+        conceptSummary,
+        filterSummary,
+      });
+    } catch (cause) {
+      geminiFailureReason = "Gemini service request failed.";
+      if (cause instanceof Error && cause.message) {
+        geminiFailureReason = `Gemini service request failed: ${cause.message}`;
+      }
+    }
+
+    if (!geminiResult || !geminiResult.ok) {
+      const failureDetail = !geminiResult || geminiResult.ok ? null : geminiResult.detail;
       return NextResponse.json({
         ...baseResult,
         explanationSteps: [
@@ -89,11 +100,14 @@ export async function POST(request: NextRequest) {
           "Gemini assist was unavailable, returned deterministic SQL.",
         ],
         statusLabel: "Gemini Fallback",
-        statusDetail: "Gemini Assist was enabled, but the model was unavailable or returned no valid response.",
+        statusDetail:
+          failureDetail ??
+          geminiFailureReason ??
+          "Gemini Assist was enabled, but the model was unavailable or returned no valid response.",
       });
     }
 
-    const safeSql = sanitizeReadOnlySql(geminiResult.sql);
+    const safeSql = sanitizeReadOnlySql(geminiResult.result.sql);
     if (!safeSql) {
       return NextResponse.json({
         ...baseResult,
@@ -107,23 +121,23 @@ export async function POST(request: NextRequest) {
     }
 
     const candidateConfidence =
-      typeof geminiResult.confidenceScore === "number"
-        ? Math.max(0, Math.min(1, geminiResult.confidenceScore))
+      typeof geminiResult.result.confidenceScore === "number"
+        ? Math.max(0, Math.min(1, geminiResult.result.confidenceScore))
         : baseResult.confidenceScore;
 
     return NextResponse.json({
       ...baseResult,
       sql: safeSql,
       confidenceScore: Number(Math.max(baseResult.confidenceScore, candidateConfidence).toFixed(2)),
-      aiExplanation: geminiResult.explanation,
+      aiExplanation: geminiResult.result.explanation,
       explanationSteps: [
         ...baseResult.explanationSteps,
         "Gemini refined SQL for schema-level phrasing and readability.",
       ],
       translationMode: "gemini-assist",
-      modelUsed: geminiResult.model,
+      modelUsed: geminiResult.result.model,
       statusLabel: "Gemini Assist Active",
-      statusDetail: `SQL refined by ${geminiResult.model}.`,
+      statusDetail: `SQL refined by ${geminiResult.result.model}.`,
     });
   } catch {
     return NextResponse.json({ error: "Unable to translate query." }, { status: 500 });

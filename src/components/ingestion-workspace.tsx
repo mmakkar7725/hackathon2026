@@ -1,7 +1,7 @@
 "use client";
 
 import { FileUp, FlaskConical, Loader2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,11 +13,21 @@ type SelectedRecord =
   | { type: "medical"; record: MedicalHistoryRecord }
   | null;
 
+type FileParseStatus = "pending" | "processing" | "parsed" | "failed";
+
 export function IngestionWorkspace() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileProgress, setFileProgress] = useState<Array<{ name: string; status: FileParseStatus; detail?: string }>>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
+  const [isCheckingConnectivity, setIsCheckingConnectivity] = useState(false);
+  const [connectivity, setConnectivity] = useState<{
+    ok: boolean;
+    status: string;
+    detail: string;
+    checkedAt?: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<SelectedRecord>(null);
   const [showRawJson, setShowRawJson] = useState(false);
@@ -36,13 +46,60 @@ export function IngestionWorkspace() {
     usedTranscription?: boolean;
     transcriptionModel?: string;
     geminiFailureReason?: string;
+    extractorFailureDetail?: string;
+    transcriptionFailureDetail?: string;
     previewDemographics?: DemographicsRecord;
     previewMedical?: MedicalHistoryRecord;
   } | null>(null);
-  const [tables, setTables] = useState(() => readTables());
+  const [tables, setTables] = useState<ReturnType<typeof readTables>>({ demographics: [], medicalHistory: [] });
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setTables(readTables());
+  }, []);
+
+  const onCheckConnectivity = useCallback(async () => {
+    setIsCheckingConnectivity(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/intake/connectivity", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        status?: string;
+        detail?: string;
+        checkedAt?: number;
+      };
+
+      setConnectivity({
+        ok: Boolean(payload.ok),
+        status: payload.status ?? "unknown",
+        detail: payload.detail ?? "No details returned.",
+        checkedAt: payload.checkedAt,
+      });
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "Connectivity check failed.";
+      setConnectivity({
+        ok: false,
+        status: "request-failed",
+        detail,
+      });
+    } finally {
+      setIsCheckingConnectivity(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void onCheckConnectivity();
+  }, [onCheckConnectivity]);
 
   const formatDateTime = (timestamp?: number) => {
-    if (!timestamp) {
+    if (!timestamp || !mounted) {
       return "-";
     }
 
@@ -64,73 +121,133 @@ export function IngestionWorkspace() {
     </div>
   );
 
-  const onParseFile = async () => {
-    if (!selectedFile) {
-      setError("Please choose a file first.");
+  const onParseFiles = async () => {
+    if (selectedFiles.length === 0) {
+      setError("Please choose one or more files first.");
       return;
     }
 
     setError(null);
     setIsParsing(true);
+    setFileProgress(
+      selectedFiles.map((file) => ({
+        name: file.name,
+        status: "pending",
+      }))
+    );
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+      let successCount = 0;
+      const failedFiles: string[] = [];
 
-      const response = await fetch("/api/intake/parse", {
-        method: "POST",
-        body: formData,
-      });
+      for (const file of selectedFiles) {
+        setFileProgress((previous) =>
+          previous.map((entry) =>
+            entry.name === file.name ? { ...entry, status: "processing", detail: "Parsing..." } : entry
+          )
+        );
 
-      const payload = (await response.json()) as Partial<IntakeParseResponse> & {
-        error?: string;
-      };
+        const formData = new FormData();
+        formData.append("file", file);
 
-      if (
-        !payload ||
-        !Array.isArray(payload.demographics) ||
-        !Array.isArray(payload.medicalHistory)
-      ) {
-        throw new Error(payload?.error || "Invalid parser response.");
+        const response = await fetch("/api/intake/parse", {
+          method: "POST",
+          body: formData,
+        });
+
+        const payload = (await response.json()) as Partial<IntakeParseResponse> & {
+          error?: string;
+        };
+
+        if (
+          !payload ||
+          !Array.isArray(payload.demographics) ||
+          !Array.isArray(payload.medicalHistory)
+        ) {
+          failedFiles.push(file.name);
+          setFileProgress((previous) =>
+            previous.map((entry) =>
+              entry.name === file.name
+                ? { ...entry, status: "failed", detail: payload?.error || "Invalid parser response." }
+                : entry
+            )
+          );
+          continue;
+        }
+
+        if (!response.ok) {
+          failedFiles.push(file.name);
+          setFileProgress((previous) =>
+            previous.map((entry) =>
+              entry.name === file.name
+                ? { ...entry, status: "failed", detail: payload.error || "Parser endpoint returned an error status." }
+                : entry
+            )
+          );
+          continue;
+        }
+
+        const safePayload = payload as IntakeParseResponse;
+        appendToTables({
+          demographics: safePayload.demographics,
+          medicalHistory: safePayload.medicalHistory,
+        });
+
+        successCount += 1;
+
+        setParseDebug({
+          sourceFileName: file.name,
+          parserMode: safePayload.parserMode,
+          demographicsRows: safePayload.demographics.length,
+          medicalRows: safePayload.medicalHistory.length,
+          demographicsMissingName: safePayload.demographics.filter(
+            (row) => !row.fullName || row.fullName === "Unknown Patient"
+          ).length,
+          demographicsMissingGender: safePayload.demographics.filter((row) => !row.gender).length,
+          medicalMissingCondition: safePayload.medicalHistory.filter(
+            (row) => !row.condition || row.condition === "Unspecified condition"
+          ).length,
+          medicalMissingCode: safePayload.medicalHistory.filter((row) => !row.code || row.code === "N/A").length,
+          extractionSource: safePayload.parseMeta?.extractionSource,
+          extractedTextLength: safePayload.parseMeta?.extractedTextLength,
+          finalTextLength: safePayload.parseMeta?.finalTextLength,
+          usedTranscription: safePayload.parseMeta?.usedTranscription,
+          transcriptionModel: safePayload.parseMeta?.transcriptionModel,
+          geminiFailureReason: safePayload.parseMeta?.geminiFailureReason,
+          extractorFailureDetail: safePayload.parseMeta?.extractorFailureDetail,
+          transcriptionFailureDetail: safePayload.parseMeta?.transcriptionFailureDetail,
+          previewDemographics: safePayload.demographics[0],
+          previewMedical: safePayload.medicalHistory[0],
+        });
+
+        setFileProgress((previous) =>
+          previous.map((entry) =>
+            entry.name === file.name
+              ? {
+                  ...entry,
+                  status: "parsed",
+                  detail: `${safePayload.demographics.length} demographics, ${safePayload.medicalHistory.length} history rows`,
+                }
+              : entry
+          )
+        );
       }
 
-      if (!response.ok) {
-        throw new Error(payload.error || "Parser endpoint returned an error status.");
+      if (successCount === 0) {
+        throw new Error("None of the selected files could be parsed.");
       }
 
-      const safePayload = payload as IntakeParseResponse;
-      appendToTables({
-        demographics: safePayload.demographics,
-        medicalHistory: safePayload.medicalHistory,
-      });
+      setStatusLabel(successCount === selectedFiles.length ? "Batch Parse Complete" : "Batch Parse Partial");
+      if (successCount === selectedFiles.length) {
+        setStatusDetail(`Parsed ${successCount}/${selectedFiles.length} files successfully.`);
+      } else {
+        setStatusDetail(
+          `Parsed ${successCount}/${selectedFiles.length} files. Failed: ${failedFiles.join(", ")}`
+        );
+      }
 
-      setParseDebug({
-        sourceFileName: selectedFile.name,
-        parserMode: safePayload.parserMode,
-        demographicsRows: safePayload.demographics.length,
-        medicalRows: safePayload.medicalHistory.length,
-        demographicsMissingName: safePayload.demographics.filter(
-          (row) => !row.fullName || row.fullName === "Unknown Patient"
-        ).length,
-        demographicsMissingGender: safePayload.demographics.filter((row) => !row.gender).length,
-        medicalMissingCondition: safePayload.medicalHistory.filter(
-          (row) => !row.condition || row.condition === "Unspecified condition"
-        ).length,
-        medicalMissingCode: safePayload.medicalHistory.filter((row) => !row.code || row.code === "N/A").length,
-        extractionSource: safePayload.parseMeta?.extractionSource,
-        extractedTextLength: safePayload.parseMeta?.extractedTextLength,
-        finalTextLength: safePayload.parseMeta?.finalTextLength,
-        usedTranscription: safePayload.parseMeta?.usedTranscription,
-        transcriptionModel: safePayload.parseMeta?.transcriptionModel,
-        geminiFailureReason: safePayload.parseMeta?.geminiFailureReason,
-        previewDemographics: safePayload.demographics[0],
-        previewMedical: safePayload.medicalHistory[0],
-      });
-
-      setStatusLabel(safePayload.statusLabel);
-      setStatusDetail(safePayload.statusDetail);
       setTables(readTables());
-      setSelectedFile(null);
+      setSelectedFiles([]);
     } catch (cause) {
       const detail =
         cause instanceof Error && cause.message
@@ -161,15 +278,56 @@ export function IngestionWorkspace() {
           <div className="w-full">
             <input
               type="file"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+              multiple
+              onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
               disabled={isParsing}
               className="file-input-accent ds-body block w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2"
             />
             <p className="ds-caption mt-2 inline-flex rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-[var(--text-secondary)]">
-              {selectedFile
-                ? `Selected: ${selectedFile.name} (${Math.max(1, Math.round(selectedFile.size / 1024))} KB)`
+              {selectedFiles.length > 0
+                ? `Selected ${selectedFiles.length} file(s)`
                 : "No file chosen"}
             </p>
+
+            {fileProgress.length > 0 ? (
+              <div className="mt-3 rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-2">
+                <p className="ds-caption mb-2 font-semibold tracking-[0.07em] text-[var(--text-secondary)] uppercase">
+                  File Progress
+                </p>
+                <ul className="max-h-[180px] space-y-1 overflow-auto pr-1">
+                  {fileProgress.map((item) => {
+                    const statusTone =
+                      item.status === "parsed"
+                        ? "text-emerald-700"
+                        : item.status === "failed"
+                          ? "text-rose-700"
+                          : item.status === "processing"
+                            ? "text-[var(--brand-700)]"
+                            : "text-[var(--text-secondary)]";
+
+                    const label =
+                      item.status === "parsed"
+                        ? "Parsed"
+                        : item.status === "failed"
+                          ? "Failed"
+                          : item.status === "processing"
+                            ? "Processing"
+                            : "Pending";
+
+                    return (
+                      <li key={item.name} className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="ds-caption truncate text-[var(--text-primary)]" title={item.name}>{item.name}</p>
+                          <p className={`ds-caption font-medium ${statusTone}`}>{label}</p>
+                        </div>
+                        {item.detail ? <p className="ds-caption mt-0.5 text-[var(--text-secondary)]">{item.detail}</p> : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
             {isParsing ? (
               <div className="mt-3 rounded-[var(--ds-radius-sm)] border border-[var(--brand-400)] bg-[var(--surface-1)] p-2">
                 <p className="ds-caption text-[var(--brand-700)]">Parsing in progress, extracting clinical entities...</p>
@@ -179,13 +337,33 @@ export function IngestionWorkspace() {
               </div>
             ) : null}
           </div>
-          <Button onClick={onParseFile} disabled={isParsing || !selectedFile}>
-            {isParsing ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
-            {isParsing ? "Parsing..." : "Parse and Save"}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button onClick={onParseFiles} disabled={isParsing || selectedFiles.length === 0}>
+              {isParsing ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
+              {isParsing ? "Parsing..." : "Parse and Save All"}
+            </Button>
+            <Button variant="secondary" onClick={onCheckConnectivity} disabled={isCheckingConnectivity || isParsing}>
+              {isCheckingConnectivity ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}
+              {isCheckingConnectivity ? "Checking..." : "Re-check Connectivity"}
+            </Button>
+          </div>
         </div>
 
         {error ? <p className="ds-body mt-3 text-rose-700">{error}</p> : null}
+        <div className={`mt-3 rounded-[var(--ds-radius-sm)] border px-3 py-2 ${isCheckingConnectivity ? "border-[var(--border)] bg-[var(--surface-1)]" : connectivity?.ok ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50"}`}>
+          <p className={`ds-body font-medium ${isCheckingConnectivity ? "text-[var(--text-primary)]" : connectivity?.ok ? "text-emerald-800" : "text-rose-800"}`}>
+            Connectivity: {isCheckingConnectivity ? "Checking..." : connectivity?.ok ? "Passed" : "Failed"}
+            {!isCheckingConnectivity && connectivity?.status ? ` (${connectivity.status})` : ""}
+          </p>
+          <p className={`ds-caption mt-1 ${isCheckingConnectivity ? "text-[var(--text-secondary)]" : connectivity?.ok ? "text-emerald-700" : "text-rose-700"}`}>
+            {isCheckingConnectivity
+              ? "Testing Gemini endpoint reachability..."
+              : connectivity?.detail ?? "Connectivity status unavailable."}
+          </p>
+          <p className="ds-caption mt-1 text-[var(--text-secondary)]">
+            Checked at: {formatDateTime(connectivity?.checkedAt)}
+          </p>
+        </div>
       </Card>
 
       {statusLabel ? (
@@ -403,6 +581,12 @@ export function IngestionWorkspace() {
                   </p>
                   <p className="ds-caption text-[var(--text-secondary)]">
                     Transcription Model: <span className="ds-body text-[var(--text-primary)]">{parseDebug.transcriptionModel ?? "-"}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)] md:col-span-2">
+                    Extractor Detail: <span className="ds-body text-[var(--text-primary)]">{parseDebug.extractorFailureDetail ?? "-"}</span>
+                  </p>
+                  <p className="ds-caption text-[var(--text-secondary)] md:col-span-2">
+                    Transcription Detail: <span className="ds-body text-[var(--text-primary)]">{parseDebug.transcriptionFailureDetail ?? "-"}</span>
                   </p>
                 </div>
               </div>

@@ -33,7 +33,7 @@ export function HistoryPanel({ history, onLoad, onClear }: HistoryPanelProps) {
                 <p className="ds-body line-clamp-1 font-medium text-[var(--text-primary)]">{item.input}</p>
                 <p className="ds-caption mt-1 flex items-center gap-1 text-[var(--text-muted)]">
                   <Clock3 size={12} />
-                  {new Date(item.timestamp).toLocaleString()}
+                  <span suppressHydrationWarning>{new Date(item.timestamp).toLocaleString()}</span>
                 </p>
               </button>
             </li>

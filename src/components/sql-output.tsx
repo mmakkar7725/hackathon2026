@@ -10,15 +10,25 @@ interface SqlOutputProps {
   sql: string;
 }
 
+function normalizeSqlForView(sql: string) {
+  return sql
+    .trim()
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "  ")
+    .replace(/\\"/g, '"');
+}
+
 export function SqlOutput({ sql }: SqlOutputProps) {
-  const highlighted = Prism.highlight(sql, Prism.languages.sql, "sql");
+  const normalizedSql = normalizeSqlForView(sql);
+  const highlighted = Prism.highlight(normalizedSql, Prism.languages.sql, "sql");
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(sql);
+    await navigator.clipboard.writeText(normalizedSql);
   };
 
   const handleDownload = () => {
-    const blob = new Blob([sql], { type: "text/sql;charset=utf-8" });
+    const blob = new Blob([normalizedSql], { type: "text/sql;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
