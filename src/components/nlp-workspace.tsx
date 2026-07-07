@@ -4,8 +4,6 @@ import { BrainCircuit, CheckCircle2, Circle, Database, Loader2 } from "lucide-re
 import { useCallback, useRef, useState } from "react";
 
 import { HistoryPanel } from "@/components/history-panel";
-import { MedicalConceptsPanel } from "@/components/medical-concepts-panel";
-import { QueryExplanation } from "@/components/query-explanation";
 import { QueryInputPanel } from "@/components/query-input-panel";
 import { SamplePrompts } from "@/components/sample-prompts";
 import { SqlOutput } from "@/components/sql-output";
@@ -14,7 +12,7 @@ import { data as samplePrompts } from "@/data/samplePrompts";
 import { useSpeechInput } from "@/hooks/useSpeechInput";
 import { runQueryAgainstStep1Data, Step1QueryRunResult } from "@/services/localQueryRunner";
 import { useQueryStore } from "@/store/queryStore";
-import { QueryResult } from "@/types/medical";
+import type { AmbiguityDetection, QueryResult } from "@/types/medical";
 
 interface QueryInsightsResponse {
   overview: string;
@@ -135,6 +133,7 @@ export function NlpWorkspace() {
   const [pipelineStep, setPipelineStep] = useState<"idle" | "translating" | "executing" | "insights" | "done">("idle");
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
   const [useGeminiAssist, setUseGeminiAssist] = useState(true);
+  const [ambiguities, setAmbiguities] = useState<AmbiguityDetection[] | null>(null);
   const [timelineState, setTimelineState] = useState<TimelineState>(createDefaultTimelineState());
   const [timelineFacts, setTimelineFacts] = useState({
     entitiesFound: 0,
@@ -272,154 +271,186 @@ export function NlpWorkspace() {
       return;
     }
 
-    const pipelineEl = pipelineSectionRef.current;
-    if (pipelineEl) {
-      const targetTop = Math.max(0, pipelineEl.getBoundingClientRect().top + window.scrollY - 72);
-      window.scrollTo({ top: targetTop, behavior: "smooth" });
-    }
-
-    setPipelineStep("idle");
-    setIsExecutingPipeline(true);
-    setStep1Result(null);
-    setQueryInsights(null);
-    setError(null);
-    setTimelineState({
-      entities: "active",
-      filters: "pending",
-      sql: "pending",
-      patients: "pending",
-    });
-    setTimelineFacts({
-      entitiesFound: 0,
-      filtersInferred: 0,
-      sqlBuilt: false,
-      patientsMatched: 0,
-    });
-    setPipelineStep("translating");
-
-    let translated: QueryResult | null = null;
-
     try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), useGeminiAssist }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = "Translation failed.";
-        try {
-          const payload = (await response.json()) as { error?: string };
-          if (payload?.error) {
-            errorMessage = payload.error;
-          }
-        } catch {
-          // Ignore JSON parsing failures and keep the default message.
-        }
-
-        throw new Error(errorMessage);
+      const pipelineEl = pipelineSectionRef.current;
+      if (pipelineEl) {
+        const targetTop = Math.max(0, pipelineEl.getBoundingClientRect().top + window.scrollY - 72);
+        window.scrollTo({ top: targetTop, behavior: "smooth" });
       }
 
-      translated = (await response.json()) as QueryResult;
-      setResult(translated);
+      setPipelineStep("idle");
+      setIsExecutingPipeline(true);
+      setStep1Result(null);
+      setQueryInsights(null);
+      setError(null);
+      setTimelineState({
+        entities: "active",
+        filters: "pending",
+        sql: "pending",
+        patients: "pending",
+      });
+      setTimelineFacts({
+        entitiesFound: 0,
+        filtersInferred: 0,
+        sqlBuilt: false,
+        patientsMatched: 0,
+      });
+      setPipelineStep("translating");
 
-      const entitiesFound = translated.concepts.length;
-      const filtersInferred = countInferredFilters(translated.filters);
-      const sqlBuilt = Boolean(translated.sql?.trim());
+      let translated: QueryResult | null = null;
 
+      try {
+        // Import readTables locally to get dataset statistics
+        const { readTables } = await import("@/services/localTables");
+        const { demographics, medicalHistory } = readTables();
+        
+        // Calculate dataset statistics
+        const uniquePatients = new Set(demographics.map((d) => d.patientId));
+        const dateRanges = medicalHistory
+          .map((m) => m.onsetDate)
+          .filter((d) => d)
+          .sort();
+        
+        const datasetStats = {
+          demographicsCount: demographics.length,
+          medicalHistoryCount: medicalHistory.length,
+          uniquePatientsCount: uniquePatients.size,
+          dateRangeStart: dateRanges[0] ?? undefined,
+          dateRangeEnd: dateRanges[dateRanges.length - 1] ?? undefined,
+        };
+
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            useGeminiAssist,
+            datasetStats,
+            ambiguities,
+          }),
+        });
+
+        if (!response.ok) {
+          let errorMessage = "Translation failed.";
+          try {
+            const payload = (await response.json()) as { error?: string };
+            if (payload?.error) {
+              errorMessage = payload.error;
+            }
+          } catch {
+            // Ignore JSON parsing failures and keep the default message.
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        translated = (await response.json()) as QueryResult;
+        setResult(translated);
+
+        const entitiesFound = translated.concepts.length;
+        const filtersInferred = countInferredFilters(translated.filters);
+        const sqlBuilt = Boolean(translated.sql?.trim());
+
+        setTimelineFacts((previous) => ({
+          ...previous,
+          entitiesFound,
+        }));
+        setTimelineState((previous) => ({
+          ...previous,
+          entities: "done",
+          filters: "active",
+        }));
+
+        await wait(180);
+
+        setTimelineFacts((previous) => ({
+          ...previous,
+          filtersInferred,
+        }));
+        setTimelineState((previous) => ({
+          ...previous,
+          filters: "done",
+          sql: "active",
+        }));
+
+        await wait(180);
+
+        setTimelineFacts((previous) => ({
+          ...previous,
+          sqlBuilt,
+        }));
+        setTimelineState((previous) => ({
+          ...previous,
+          sql: "done",
+          patients: "active",
+        }));
+      } catch (caughtError) {
+        const message = caughtError instanceof Error ? caughtError.message : "Translation failed.";
+        setError(`Translation step failed: ${message}`);
+        setIsExecutingPipeline(false);
+        setTimelineState(createDefaultTimelineState());
+        setPipelineStep("idle");
+        return;
+      }
+
+      setPipelineStep("executing");
+      const output = runQueryAgainstStep1Data(translated);
+      setStep1Result(output);
       setTimelineFacts((previous) => ({
         ...previous,
-        entitiesFound,
+        patientsMatched: output.totalPatients,
       }));
       setTimelineState((previous) => ({
         ...previous,
-        entities: "done",
-        filters: "active",
+        patients: "done",
       }));
+      setIsGeneratingInsights(true);
+      setPipelineStep("insights");
 
-      await wait(180);
+      try {
+        const insightsResponse = await fetch("/api/query-insights", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: translated.input,
+            totalPatients: output.totalPatients,
+            totalCandidates: output.totalCandidates,
+            relaxationStats: output.relaxationStats,
+            nearMisses: output.nearMisses,
+          }),
+        });
 
-      setTimelineFacts((previous) => ({
-        ...previous,
-        filtersInferred,
-      }));
-      setTimelineState((previous) => ({
-        ...previous,
-        filters: "done",
-        sql: "active",
-      }));
-
-      await wait(180);
-
-      setTimelineFacts((previous) => ({
-        ...previous,
-        sqlBuilt,
-      }));
-      setTimelineState((previous) => ({
-        ...previous,
-        sql: "done",
-        patients: "active",
-      }));
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Translation failed.";
-      setError(`Translation step failed: ${message}`);
+        if (insightsResponse.ok) {
+          const insights = (await insightsResponse.json()) as QueryInsightsResponse;
+          setQueryInsights(insights);
+        } else {
+          setQueryInsights(buildLocalInsights(output));
+          setError("Gemini insights unavailable. Showing deterministic fallback insights.");
+        }
+      } catch {
+        setQueryInsights(buildLocalInsights(output));
+        setError("Gemini insights unavailable. Showing deterministic fallback insights.");
+      } finally {
+        setIsGeneratingInsights(false);
+        setIsExecutingPipeline(false);
+        setPipelineStep("done");
+      }
+    } catch (executionError) {
+      const message =
+        executionError instanceof Error
+          ? executionError.message
+          : "An unexpected error occurred during query execution.";
+      setError(`Query execution failed: ${message}`);
       setIsExecutingPipeline(false);
       setTimelineState(createDefaultTimelineState());
       setPipelineStep("idle");
-      return;
     }
-
-    setPipelineStep("executing");
-    const output = runQueryAgainstStep1Data(translated);
-    setStep1Result(output);
-    setTimelineFacts((previous) => ({
-      ...previous,
-      patientsMatched: output.totalPatients,
-    }));
-    setTimelineState((previous) => ({
-      ...previous,
-      patients: "done",
-    }));
-    setIsGeneratingInsights(true);
-    setPipelineStep("insights");
-
-    try {
-      const insightsResponse = await fetch("/api/query-insights", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: translated.input,
-          totalPatients: output.totalPatients,
-          totalCandidates: output.totalCandidates,
-          relaxationStats: output.relaxationStats,
-          nearMisses: output.nearMisses,
-        }),
-      });
-
-      if (insightsResponse.ok) {
-        const insights = (await insightsResponse.json()) as QueryInsightsResponse;
-        setQueryInsights(insights);
-      } else {
-        setQueryInsights(buildLocalInsights(output));
-        setError("Gemini insights unavailable. Showing deterministic fallback insights.");
-      }
-    } catch {
-      setQueryInsights(buildLocalInsights(output));
-      setError("Gemini insights unavailable. Showing deterministic fallback insights.");
-    } finally {
-      setIsGeneratingInsights(false);
-      setIsExecutingPipeline(false);
-      setPipelineStep("done");
-    }
-  }, [prompt, setResult, useGeminiAssist]);
+  }, [prompt, setResult, useGeminiAssist, ambiguities]);
 
   const { isListening, isSupported, startListening } = useSpeechInput((transcript: string) => {
     setPrompt(transcript);
   });
 
-  const concepts = currentResult?.concepts ?? [];
-  const explanation = currentResult?.explanationSteps ?? [];
-  const confidence = currentResult?.confidenceScore ?? 0;
   const limitedPrompts = samplePrompts.slice(0, 2);
   const limitedHistory = history.slice(0, 5);
   const sql =
@@ -490,6 +521,75 @@ export function NlpWorkspace() {
               Run a query translation to view processing status.
             </p>
           )}
+
+          {currentResult?.feasibilityCheck && (
+            <div
+              className={`mt-3 rounded-[var(--ds-radius-sm)] border px-3 py-2.5 ${
+                currentResult.feasibilityCheck.feasible
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-orange-200 bg-orange-50"
+              }`}
+            >
+              <p className={`ds-caption font-semibold ${
+                currentResult.feasibilityCheck.feasible
+                  ? "text-amber-900"
+                  : "text-orange-900"
+              }`}>
+                Query Feasibility: {currentResult.feasibilityCheck.feasible ? "✓ Viable" : "⚠ Limited Results Expected"}
+              </p>
+              <p className={`ds-caption mt-1 ${
+                currentResult.feasibilityCheck.feasible
+                  ? "text-amber-800"
+                  : "text-orange-800"
+              }`}>
+                Expected matches: {currentResult.feasibilityCheck.expectedRowsMin}–{currentResult.feasibilityCheck.expectedRowsMax} rows
+              </p>
+              {currentResult.feasibilityCheck.warnings.length > 0 && (
+                <div className="mt-1.5">
+                  <p className={`ds-caption font-medium ${
+                    currentResult.feasibilityCheck.feasible
+                      ? "text-amber-800"
+                      : "text-orange-800"
+                  }`}>
+                    Warnings:
+                  </p>
+                  <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
+                    currentResult.feasibilityCheck.feasible
+                      ? "text-amber-800"
+                      : "text-orange-800"
+                  }`}>
+                    {currentResult.feasibilityCheck.warnings.slice(0, 2).map((warning, idx) => (
+                      <li key={idx} className="ds-caption">
+                        {warning}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {currentResult.feasibilityCheck.suggestions.length > 0 && (
+                <div className="mt-1.5">
+                  <p className={`ds-caption font-medium ${
+                    currentResult.feasibilityCheck.feasible
+                      ? "text-amber-800"
+                      : "text-orange-800"
+                  }`}>
+                    Suggestions:
+                  </p>
+                  <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
+                    currentResult.feasibilityCheck.feasible
+                      ? "text-amber-800"
+                      : "text-orange-800"
+                  }`}>
+                    {currentResult.feasibilityCheck.suggestions.slice(0, 2).map((suggestion, idx) => (
+                      <li key={idx} className="ds-caption">
+                        {suggestion}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2.5 shadow-[var(--ds-elevation-1)]">
@@ -558,6 +658,7 @@ export function NlpWorkspace() {
             isListening={isListening}
             isSpeechSupported={isSupported}
             onStartVoice={startListening}
+            onAmbiguitiesChange={setAmbiguities}
           />
           {error ? <p className="ds-body text-rose-700">{error}</p> : null}
           <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-2">
@@ -732,46 +833,23 @@ export function NlpWorkspace() {
           </div>
         </details>
 
-        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
-          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Medical Concepts</summary>
-          <div className="mt-3">
-            <MedicalConceptsPanel concepts={concepts} confidenceScore={confidence} />
-          </div>
-        </details>
-      </section>
-
-      <section className="fade-in-up grid gap-6 lg:grid-cols-2" style={{ animationDelay: "300ms" }}>
-        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
-          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Query Explainability</summary>
-          <div className="mt-3">
-            <QueryExplanation
-              steps={
-                explanation.length > 0
-                  ? explanation
-                  : ["Run a translation to see step-by-step explainability details."]
-              }
-              aiExplanation={
-                currentResult?.aiExplanation ??
-                "The app uses deterministic NLP extraction and coded concept mapping before building SQL clauses."
-              }
-            />
-          </div>
-        </details>
-
-        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-4 shadow-[var(--ds-elevation-1)]">
-          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Professional Use Disclaimer</summary>
-          <ul className="mt-3 space-y-1">
-            <li className="ds-caption text-[var(--text-secondary)]">
-              This demo generates draft SQL for analytics acceleration and does not replace clinical judgement.
+        <div className="rounded-[var(--ds-radius-sm)] border-2 border-amber-200 bg-amber-50 p-4 shadow-[var(--ds-elevation-1)]">
+          <h3 className="ds-body font-semibold text-amber-900 mb-2">⚠️ Clinical Use Disclaimer</h3>
+          <ul className="space-y-1.5">
+            <li className="ds-caption text-amber-800">
+              • This tool generates <strong>draft SQL only</strong> — does not replace clinical judgment or data governance
             </li>
-            <li className="ds-caption text-[var(--text-secondary)]">
-              Validate generated queries against approved schema, data governance, and privacy policies before use.
+            <li className="ds-caption text-amber-800">
+              • Always <strong>validate queries</strong> against approved schema and privacy policies before execution
             </li>
-            <li className="ds-caption text-[var(--text-secondary)]">
-              For regulated workflows, route results through human review and audit logging.
+            <li className="ds-caption text-amber-800">
+              • For regulated use: implement <strong>human review, audit logging, and compliance controls</strong>
+            </li>
+            <li className="ds-caption text-amber-800">
+              • Demo purpose only — not for production PHI or clinical decision-making
             </li>
           </ul>
-        </details>
+        </div>
       </section>
     </>
   );

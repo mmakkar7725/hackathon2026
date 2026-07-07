@@ -42,6 +42,42 @@ export interface ParseResult {
 
 export type TranslationMode = "deterministic" | "gemini-assist";
 
+export interface QueryFeasibilityResult {
+  feasible: boolean;
+  expectedRowsMin: number;
+  expectedRowsMax: number;
+  estimatedConfidence: number;
+  warnings: string[];
+  suggestions: string[];
+}
+
+export type AmbiguityType =
+  | "medical-concept"
+  | "temporal"
+  | "demographic"
+  | "structural";
+
+export interface AmbiguityInterpretation {
+  option: string;
+  likelihood: "high" | "medium" | "low";
+  explanation: string;
+  clarifiedPhrase?: string;
+}
+
+export interface AmbiguityDetection {
+  id: string;
+  fragment: string;
+  type: AmbiguityType;
+  interpretations: AmbiguityInterpretation[];
+  selectedInterpretationIndex?: number;
+}
+
+export interface AmbiguityResolution {
+  hasAmbiguities: boolean;
+  ambiguities: AmbiguityDetection[];
+  clarifiedPrompt?: string;
+}
+
 export interface QueryResult {
   id: string;
   timestamp: number;
@@ -56,4 +92,5 @@ export interface QueryResult {
   modelUsed?: string;
   statusLabel?: string;
   statusDetail?: string;
+  feasibilityCheck?: QueryFeasibilityResult;
 }

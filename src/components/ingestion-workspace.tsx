@@ -53,6 +53,7 @@ export function IngestionWorkspace() {
   } | null>(null);
   const [tables, setTables] = useState<ReturnType<typeof readTables>>({ demographics: [], medicalHistory: [] });
   const [mounted, setMounted] = useState(false);
+  const [showRecordViewer, setShowRecordViewer] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -248,6 +249,8 @@ export function IngestionWorkspace() {
 
       setTables(readTables());
       setSelectedFiles([]);
+      // Clear file progress after a short delay
+      setTimeout(() => setFileProgress([]), 2000);
     } catch (cause) {
       const detail =
         cause instanceof Error && cause.message
@@ -274,8 +277,8 @@ export function IngestionWorkspace() {
           separate tables for downstream NLP querying.
         </p>
 
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="w-full">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="flex-1">
             <input
               type="file"
               multiple
@@ -283,86 +286,90 @@ export function IngestionWorkspace() {
               disabled={isParsing}
               className="file-input-accent ds-body block w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2"
             />
-            <p className="ds-caption mt-2 inline-flex rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-[var(--text-secondary)]">
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex items-center gap-2">
+            <p className="ds-caption rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-[var(--text-secondary)]">
               {selectedFiles.length > 0
-                ? `Selected ${selectedFiles.length} file(s)`
+                ? `${selectedFiles.length} file(s) selected`
                 : "No file chosen"}
             </p>
-
-            {fileProgress.length > 0 ? (
-              <div className="mt-3 rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-2">
-                <p className="ds-caption mb-2 font-semibold tracking-[0.07em] text-[var(--text-secondary)] uppercase">
-                  File Progress
-                </p>
-                <ul className="max-h-[180px] space-y-1 overflow-auto pr-1">
-                  {fileProgress.map((item) => {
-                    const statusTone =
-                      item.status === "parsed"
-                        ? "text-emerald-700"
-                        : item.status === "failed"
-                          ? "text-rose-700"
-                          : item.status === "processing"
-                            ? "text-[var(--brand-700)]"
-                            : "text-[var(--text-secondary)]";
-
-                    const label =
-                      item.status === "parsed"
-                        ? "Parsed"
-                        : item.status === "failed"
-                          ? "Failed"
-                          : item.status === "processing"
-                            ? "Processing"
-                            : "Pending";
-
-                    return (
-                      <li key={item.name} className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-2 py-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="ds-caption truncate text-[var(--text-primary)]" title={item.name}>{item.name}</p>
-                          <p className={`ds-caption font-medium ${statusTone}`}>{label}</p>
-                        </div>
-                        {item.detail ? <p className="ds-caption mt-0.5 text-[var(--text-secondary)]">{item.detail}</p> : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ) : null}
-
-            {isParsing ? (
-              <div className="mt-3 rounded-[var(--ds-radius-sm)] border border-[var(--brand-400)] bg-[var(--surface-1)] p-2">
-                <p className="ds-caption text-[var(--brand-700)]">Parsing in progress, extracting clinical entities...</p>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--surface-3)]">
-                  <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--brand-500)]" />
-                </div>
-              </div>
-            ) : null}
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2 md:ml-auto">
             <Button onClick={onParseFiles} disabled={isParsing || selectedFiles.length === 0}>
               {isParsing ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
-              {isParsing ? "Parsing..." : "Parse and Save All"}
+              {isParsing ? "Parsing..." : "Parse and Save"}
             </Button>
-            <Button variant="secondary" onClick={onCheckConnectivity} disabled={isCheckingConnectivity || isParsing}>
-              {isCheckingConnectivity ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}
-              {isCheckingConnectivity ? "Checking..." : "Re-check Connectivity"}
+            <Button variant="secondary" onClick={onCheckConnectivity} disabled={isCheckingConnectivity || isParsing} size="sm">
+              {isCheckingConnectivity ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+              {isCheckingConnectivity ? "Checking..." : "Check Connectivity"}
             </Button>
           </div>
         </div>
 
+        {fileProgress.length > 0 ? (
+          <div className="mt-2 rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-2">
+            <p className="ds-caption mb-2 font-semibold tracking-[0.07em] text-[var(--text-secondary)] uppercase">
+              File Progress
+            </p>
+            <ul className="max-h-[120px] space-y-1 overflow-auto pr-1">
+              {fileProgress.map((item) => {
+                const statusTone =
+                  item.status === "parsed"
+                    ? "text-emerald-700"
+                    : item.status === "failed"
+                      ? "text-rose-700"
+                      : item.status === "processing"
+                        ? "text-[var(--brand-700)]"
+                        : "text-[var(--text-secondary)]";
+
+                const label =
+                  item.status === "parsed"
+                    ? "Parsed"
+                    : item.status === "failed"
+                      ? "Failed"
+                      : item.status === "processing"
+                        ? "Processing"
+                        : "Pending";
+
+                return (
+                  <li key={item.name} className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-2 py-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="ds-caption truncate text-[var(--text-primary)]" title={item.name}>{item.name}</p>
+                      <p className={`ds-caption font-medium ${statusTone}`}>{label}</p>
+                    </div>
+                    {item.detail ? <p className="ds-caption mt-0.5 text-[0.75rem] text-[var(--text-secondary)]">{item.detail}</p> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {isParsing ? (
+          <div className="mt-2 rounded-[var(--ds-radius-sm)] border border-[var(--brand-400)] bg-[var(--surface-1)] p-2">
+            <p className="ds-caption text-[var(--brand-700)]">Parsing in progress, extracting clinical entities...</p>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--brand-500)]" />
+            </div>
+          </div>
+        ) : null}
+
         {error ? <p className="ds-body mt-3 text-rose-700">{error}</p> : null}
-        <div className={`mt-3 rounded-[var(--ds-radius-sm)] border px-3 py-2 ${isCheckingConnectivity ? "border-[var(--border)] bg-[var(--surface-1)]" : connectivity?.ok ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50"}`}>
-          <p className={`ds-body font-medium ${isCheckingConnectivity ? "text-[var(--text-primary)]" : connectivity?.ok ? "text-emerald-800" : "text-rose-800"}`}>
-            Connectivity: {isCheckingConnectivity ? "Checking..." : connectivity?.ok ? "Passed" : "Failed"}
-            {!isCheckingConnectivity && connectivity?.status ? ` (${connectivity.status})` : ""}
-          </p>
-          <p className={`ds-caption mt-1 ${isCheckingConnectivity ? "text-[var(--text-secondary)]" : connectivity?.ok ? "text-emerald-700" : "text-rose-700"}`}>
-            {isCheckingConnectivity
-              ? "Testing Gemini endpoint reachability..."
-              : connectivity?.detail ?? "Connectivity status unavailable."}
-          </p>
-          <p className="ds-caption mt-1 text-[var(--text-secondary)]">
-            Checked at: {formatDateTime(connectivity?.checkedAt)}
-          </p>
+        <div className={`mt-2 rounded-[var(--ds-radius-sm)] border px-2 py-1.5 ${isCheckingConnectivity ? "border-[var(--border)] bg-[var(--surface-1)]" : connectivity?.ok ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <p className={`ds-caption font-medium ${isCheckingConnectivity ? "text-[var(--text-primary)]" : connectivity?.ok ? "text-emerald-800" : "text-rose-800"}`}>
+              Connectivity: {isCheckingConnectivity ? "Checking..." : connectivity?.ok ? "✓ Passed" : "✗ Failed"}
+              {!isCheckingConnectivity && connectivity?.status ? ` (${connectivity.status})` : ""}
+            </p>
+            <p className={`ds-caption text-[0.75rem] ${isCheckingConnectivity ? "text-[var(--text-secondary)]" : connectivity?.ok ? "text-emerald-700" : "text-rose-700"}`}>
+              {isCheckingConnectivity
+                ? "Testing..."
+                : connectivity?.detail ?? "Unavailable"}
+            </p>
+          </div>
         </div>
       </Card>
 
@@ -385,8 +392,8 @@ export function IngestionWorkspace() {
                 No demographics records yet.
               </li>
             ) : (
-              tables.demographics.map((row) => (
-                <li key={row.id}>
+              tables.demographics.map((row, index) => (
+                <li key={`${row.id}-${row.extractedAt ?? "na"}-${index}`}>
                   <button
                     onClick={() => setSelectedRecord({ type: "demographics", record: row })}
                     className="w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-left transition hover:border-[var(--brand-400)]"
@@ -416,8 +423,8 @@ export function IngestionWorkspace() {
                 No medical history records yet.
               </li>
             ) : (
-              tables.medicalHistory.map((row) => (
-                <li key={row.id}>
+              tables.medicalHistory.map((row, index) => (
+                <li key={`${row.id}-${row.extractedAt ?? "na"}-${index}`}>
                   <button
                     onClick={() => setSelectedRecord({ type: "medical", record: row })}
                     className="w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-left transition hover:border-[var(--brand-400)]"
@@ -439,7 +446,13 @@ export function IngestionWorkspace() {
 
       <Card className="fade-in-up">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className="ds-h1 text-[18px] text-[var(--text-primary)]">Complete Record Viewer</h3>
+          <button 
+            onClick={() => setShowRecordViewer(!showRecordViewer)}
+            className="flex flex-1 items-center gap-2 text-left transition hover:opacity-70"
+          >
+            <span className={`text-[var(--text-secondary)] transition-transform ${showRecordViewer ? "rotate-90" : ""}`}>▶</span>
+            <h3 className="ds-h1 text-[18px] text-[var(--text-primary)]">Complete Record Viewer</h3>
+          </button>
           <div className="flex gap-2">
             <Button
               variant="secondary"
@@ -454,90 +467,98 @@ export function IngestionWorkspace() {
           </div>
         </div>
 
-        {selectedRecord ? (
-          <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
-            <p className="ds-caption mb-2 text-[var(--text-secondary)]">
-              Showing full {selectedRecord.type === "demographics" ? "demographics" : "medical history"} record
-            </p>
+        {showRecordViewer ? (
+          <>
+            {selectedRecord ? (
+              <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+                <p className="ds-caption mb-2 text-[var(--text-secondary)]">
+                  Showing full {selectedRecord.type === "demographics" ? "demographics" : "medical history"} record
+                </p>
 
-            {showRawJson ? (
-              <pre className="max-h-[300px] overflow-auto rounded-[var(--ds-radius-sm)] bg-[var(--code-bg)] p-3 text-xs text-[var(--code-fg)]">
+                {showRawJson ? (
+                  <pre className="max-h-[300px] overflow-auto rounded-[var(--ds-radius-sm)] bg-[var(--code-bg)] p-3 text-xs text-[var(--code-fg)]">
 {JSON.stringify(selectedRecord.record, null, 2)}
-              </pre>
-            ) : (
-              <div className="space-y-4">
-                <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
-                  <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
-                    Demographics
-                  </p>
-                  {selectedRecord.type === "demographics" ? (
-                    <>
-                      {renderDetailRow("Patient ID", selectedRecord.record.patientId)}
-                      {renderDetailRow("Full Name", selectedRecord.record.fullName)}
-                      {renderDetailRow("Age", selectedRecord.record.age)}
-                      {renderDetailRow("Gender", selectedRecord.record.gender)}
-                      {renderDetailRow("Date of Birth", selectedRecord.record.dateOfBirth)}
-                    </>
-                  ) : (
-                    <>
-                      {renderDetailRow("Patient ID", selectedRecord.record.patientId)}
-                      {renderDetailRow("Linked Name", "Captured in demographics table")}
-                    </>
-                  )}
-                </section>
+                  </pre>
+                ) : (
+                  <div className="space-y-4">
+                    <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
+                      <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                        Demographics
+                      </p>
+                      {selectedRecord.type === "demographics" ? (
+                        <>
+                          {renderDetailRow("Patient ID", selectedRecord.record.patientId)}
+                          {renderDetailRow("Full Name", selectedRecord.record.fullName)}
+                          {renderDetailRow("Age", selectedRecord.record.age)}
+                          {renderDetailRow("Gender", selectedRecord.record.gender)}
+                          {renderDetailRow("Date of Birth", selectedRecord.record.dateOfBirth)}
+                        </>
+                      ) : (
+                        <>
+                          {renderDetailRow("Patient ID", selectedRecord.record.patientId)}
+                          {renderDetailRow("Linked Name", "Captured in demographics table")}
+                        </>
+                      )}
+                    </section>
 
-                <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
-                  <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
-                    Diagnosis
-                  </p>
-                  {selectedRecord.type === "medical" ? (
-                    <>
-                      {renderDetailRow("Condition", selectedRecord.record.condition)}
-                      {renderDetailRow("Code System", selectedRecord.record.codeSystem)}
-                      {renderDetailRow("Code", selectedRecord.record.code)}
-                      {renderDetailRow("Clinical Note", selectedRecord.record.note)}
-                    </>
-                  ) : (
-                    <>{renderDetailRow("Condition", "No diagnosis fields in demographics record")}</>
-                  )}
-                </section>
+                    <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
+                      <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                        Diagnosis
+                      </p>
+                      {selectedRecord.type === "medical" ? (
+                        <>
+                          {renderDetailRow("Condition", selectedRecord.record.condition)}
+                          {renderDetailRow("Code System", selectedRecord.record.codeSystem)}
+                          {renderDetailRow("Code", selectedRecord.record.code)}
+                          {renderDetailRow("Clinical Note", selectedRecord.record.note)}
+                        </>
+                      ) : (
+                        <>{renderDetailRow("Condition", "No diagnosis fields in demographics record")}</>
+                      )}
+                    </section>
 
-                <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
-                  <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
-                    Dates
-                  </p>
-                  {selectedRecord.type === "demographics" ? (
-                    <>
-                      {renderDetailRow("Date of Birth", selectedRecord.record.dateOfBirth)}
-                      {renderDetailRow("Extracted At", formatDateTime(selectedRecord.record.extractedAt))}
-                    </>
-                  ) : (
-                    <>
-                      {renderDetailRow("Onset Date", selectedRecord.record.onsetDate)}
-                      {renderDetailRow("Extracted At", formatDateTime(selectedRecord.record.extractedAt))}
-                    </>
-                  )}
-                </section>
+                    <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
+                      <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                        Dates
+                      </p>
+                      {selectedRecord.type === "demographics" ? (
+                        <>
+                          {renderDetailRow("Date of Birth", selectedRecord.record.dateOfBirth)}
+                          {renderDetailRow("Extracted At", formatDateTime(selectedRecord.record.extractedAt))}
+                        </>
+                      ) : (
+                        <>
+                          {renderDetailRow("Onset Date", selectedRecord.record.onsetDate)}
+                          {renderDetailRow("Extracted At", formatDateTime(selectedRecord.record.extractedAt))}
+                        </>
+                      )}
+                    </section>
 
-                <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
-                  <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
-                    Source
-                  </p>
-                  {renderDetailRow("Record ID", selectedRecord.record.id)}
-                  {renderDetailRow("Source File", selectedRecord.record.sourceFileName)}
-                </section>
+                    <section className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3">
+                      <p className="ds-caption mb-2 font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase">
+                        Source
+                      </p>
+                      {renderDetailRow("Record ID", selectedRecord.record.id)}
+                      {renderDetailRow("Source File", selectedRecord.record.sourceFileName)}
+                    </section>
+                  </div>
+                )}
               </div>
+            ) : (
+              <p className="ds-body text-[var(--text-muted)]">
+                Click any record from the demographics or medical history list to view the complete entry.
+              </p>
             )}
-          </div>
+
+            <p className="ds-caption mt-3 text-[var(--text-secondary)]">
+              Step 1 ingestion and Step 2 NLP querying are independent modules in this hackathon MVP.
+            </p>
+          </>
         ) : (
-          <p className="ds-body text-[var(--text-muted)]">
-            Click any record from the demographics or medical history list to view the complete entry.
+          <p className="ds-caption text-[var(--text-secondary)]">
+            Click the toggle to view complete record details
           </p>
         )}
-
-        <p className="ds-caption mt-3 text-[var(--text-secondary)]">
-          Step 1 ingestion and Step 2 NLP querying are independent modules in this hackathon MVP.
-        </p>
       </Card>
 
       {parseDebug ? (

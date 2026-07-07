@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { refineSqlWithGemini } from "@/services/geminiService";
+import {
+  refineSqlWithGemini,
+  buildDatabaseSchemaContext,
+  assessQueryFeasibilityWithGemini,
+} from "@/services/geminiService";
 import { translateMedicalQuery } from "@/services/translator";
-import { QueryResult } from "@/types/medical";
+import { QueryResult, type AmbiguityDetection, type QueryFeasibilityResult } from "@/types/medical";
 
 interface TranslateRequestBody {
   prompt?: string;
   useGeminiAssist?: boolean;
+  datasetStats?: {
+    demographicsCount: number;
+    medicalHistoryCount: number;
+    uniquePatientsCount: number;
+    dateRangeStart?: string;
+    dateRangeEnd?: string;
+  };
+  ambiguities?: AmbiguityDetection[];
 }
 
 function sanitizeReadOnlySql(sql: string) {
@@ -53,6 +65,24 @@ function summarizeBaseResult(baseResult: QueryResult) {
   };
 }
 
+function buildAmbiguitySummary(ambiguities?: AmbiguityDetection[]): string {
+  if (!ambiguities || ambiguities.length === 0) {
+    return "";
+  }
+
+  return ambiguities
+    .map((ambig) => {
+      const selected =
+        ambig.selectedInterpretationIndex !== undefined
+          ? ambig.interpretations[ambig.selectedInterpretationIndex]
+          : null;
+      if (!selected) return null;
+      return `"${ambig.fragment}": ${selected.option}`;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as TranslateRequestBody;
@@ -63,6 +93,8 @@ export async function POST(request: NextRequest) {
     }
 
     const useGeminiAssist = Boolean(body.useGeminiAssist);
+    const datasetStats = body.datasetStats;
+    const ambiguities = body.ambiguities;
     const baseResult = translateMedicalQuery(prompt);
 
     if (!useGeminiAssist) {
@@ -74,15 +106,23 @@ export async function POST(request: NextRequest) {
     }
 
     const { conceptSummary, filterSummary } = summarizeBaseResult(baseResult);
+    const ambiguitySummary = buildAmbiguitySummary(ambiguities);
+    const schemaContext = datasetStats ? buildDatabaseSchemaContext(datasetStats) : undefined;
+
     let geminiResult: Awaited<ReturnType<typeof refineSqlWithGemini>> | null = null;
     let geminiFailureReason: string | null = null;
 
     try {
+      const refinementPrompt = ambiguitySummary
+        ? `${prompt}\n\n[Clarifications: ${ambiguitySummary}]`
+        : prompt;
+
       geminiResult = await refineSqlWithGemini({
-        prompt,
+        prompt: refinementPrompt,
         deterministicSql: baseResult.sql,
         conceptSummary,
         filterSummary,
+        schemaContext,
       });
     } catch (cause) {
       geminiFailureReason = "Gemini service request failed.";
@@ -120,24 +160,63 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Check query feasibility if dataset stats are available
+    let feasibilityResult: QueryFeasibilityResult | null = null;
+    if (datasetStats) {
+      try {
+        feasibilityResult = await assessQueryFeasibilityWithGemini({
+          sql: safeSql,
+          conceptSummary,
+          filterSummary,
+          datasetStats,
+        });
+      } catch {
+        // Feasibility check failed silently - not critical
+      }
+    }
+
     const candidateConfidence =
       typeof geminiResult.result.confidenceScore === "number"
         ? Math.max(0, Math.min(1, geminiResult.result.confidenceScore))
         : baseResult.confidenceScore;
 
+    const explanationSteps = [
+      ...baseResult.explanationSteps,
+      "Gemini refined SQL for schema-level accuracy and readability.",
+    ];
+
+    if (feasibilityResult) {
+      if (!feasibilityResult.feasible) {
+        explanationSteps.push("⚠️ Query feasibility check detected potential issues.");
+      }
+      if (feasibilityResult.warnings.length > 0) {
+        explanationSteps.push(`Feasibility warnings: ${feasibilityResult.warnings[0]}`);
+      }
+      if (feasibilityResult.suggestions.length > 0) {
+        explanationSteps.push(`Suggestion: ${feasibilityResult.suggestions[0]}`);
+      }
+    }
+
+    const statusDetail = feasibilityResult
+      ? `SQL refined by ${geminiResult.result.model}. Expected results: ${feasibilityResult.expectedRowsMin}-${feasibilityResult.expectedRowsMax} rows. Confidence: ${Math.round(feasibilityResult.estimatedConfidence * 100)}%.`
+      : `SQL refined by ${geminiResult.result.model}.`;
+
     return NextResponse.json({
       ...baseResult,
       sql: safeSql,
-      confidenceScore: Number(Math.max(baseResult.confidenceScore, candidateConfidence).toFixed(2)),
+      confidenceScore: Number(
+        Math.max(
+          baseResult.confidenceScore,
+          feasibilityResult ? feasibilityResult.estimatedConfidence : candidateConfidence
+        ).toFixed(2)
+      ),
       aiExplanation: geminiResult.result.explanation,
-      explanationSteps: [
-        ...baseResult.explanationSteps,
-        "Gemini refined SQL for schema-level phrasing and readability.",
-      ],
+      explanationSteps,
       translationMode: "gemini-assist",
       modelUsed: geminiResult.result.model,
-      statusLabel: "Gemini Assist Active",
-      statusDetail: `SQL refined by ${geminiResult.result.model}.`,
+      statusLabel: feasibilityResult && !feasibilityResult.feasible ? "Gemini Assist (Warnings)" : "Gemini Assist Active",
+      statusDetail,
+      feasibilityCheck: feasibilityResult ?? undefined,
     });
   } catch {
     return NextResponse.json({ error: "Unable to translate query." }, { status: 500 });
