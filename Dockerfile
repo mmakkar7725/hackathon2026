@@ -1,24 +1,21 @@
-FROM node:20-alpine
+# Use official lightweight Node.js image
+FROM node:22-slim
 
-WORKDIR /app
+# Create and change to the app directory
+WORKDIR /usr/src/app
 
-# Copy package files
-COPY package*.json ./
+# Copy application dependency manifests to the container image
+COPY package.json ./
 
-# Install production dependencies
-RUN npm ci --only=production
 
-# Copy source code
+# Install dependencies
+RUN npm install
+
+# Copy local code to the container image
 COPY . .
 
-# Build Next.js app
+# --- ADD THIS BUILD STEP ---
 RUN npm run build
 
-# Expose port
-EXPOSE 3000
-
-# Set production environment
-ENV NODE_ENV=production
-
-# Start app
-CMD ["npm", "start"]
+# Run the web service on container startup
+CMD [ "npm", "start" ]
