@@ -3,6 +3,7 @@
 import { BrainCircuit, CheckCircle2, Circle, Database, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
+import { AgentActivityPanel } from "@/components/agent-activity-panel";
 import { HistoryPanel } from "@/components/history-panel";
 import { QueryInputPanel } from "@/components/query-input-panel";
 import { SamplePrompts } from "@/components/sample-prompts";
@@ -490,6 +491,11 @@ export function NlpWorkspace() {
 
   return (
     <>
+      {/* Agent Activity Panel - Show real-time agent status */}
+      <section className="fade-in-up mb-4" style={{ animationDelay: "0ms" }}>
+        <AgentActivityPanel pollingInterval={800} />
+      </section>
+
       <section
         ref={pipelineSectionRef}
         className="fade-in-up grid gap-4 lg:grid-cols-[1.2fr_1fr]"

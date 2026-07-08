@@ -7,6 +7,7 @@ import {
 } from "@/services/geminiService";
 import { translateMedicalQuery } from "@/services/translator";
 import { QueryResult, type AmbiguityDetection, type QueryFeasibilityResult } from "@/types/medical";
+import { agentActivityStore } from "@/store/agentActivityStore";
 
 interface TranslateRequestBody {
   prompt?: string;
@@ -84,6 +85,8 @@ function buildAmbiguitySummary(ambiguities?: AmbiguityDetection[]): string {
 }
 
 export async function POST(request: NextRequest) {
+  const agentName = "QueryExecutionAgent";
+  
   try {
     const body = (await request.json()) as TranslateRequestBody;
     const prompt = body.prompt?.trim();
@@ -92,12 +95,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
     }
 
+    // Track agent activity
+    agentActivityStore.startAgent(agentName, "Generating SQL from query");
+    agentActivityStore.updateProgress(agentName, 15, { stage: "parsing" });
+
     const useGeminiAssist = Boolean(body.useGeminiAssist);
     const datasetStats = body.datasetStats;
     const ambiguities = body.ambiguities;
     const baseResult = translateMedicalQuery(prompt);
 
+    agentActivityStore.updateProgress(agentName, 35, { stage: "base-translation-complete" });
+
     if (!useGeminiAssist) {
+      agentActivityStore.completeAgent(agentName, { mode: "deterministic" });
       return NextResponse.json({
         ...baseResult,
         statusLabel: "Deterministic Mode",
@@ -130,6 +140,8 @@ export async function POST(request: NextRequest) {
         geminiFailureReason = `Gemini service request failed: ${cause.message}`;
       }
     }
+
+    agentActivityStore.updateProgress(agentName, 60, { stage: "gemini-refinement-complete" });
 
     if (!geminiResult || !geminiResult.ok) {
       const failureDetail = !geminiResult || geminiResult.ok ? null : geminiResult.detail;
@@ -175,6 +187,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    agentActivityStore.updateProgress(agentName, 85, { stage: "feasibility-check-complete" });
+
     const candidateConfidence =
       typeof geminiResult.result.confidenceScore === "number"
         ? Math.max(0, Math.min(1, geminiResult.result.confidenceScore))
@@ -201,7 +215,7 @@ export async function POST(request: NextRequest) {
       ? `SQL refined by ${geminiResult.result.model}. Expected results: ${feasibilityResult.expectedRowsMin}-${feasibilityResult.expectedRowsMax} rows. Confidence: ${Math.round(feasibilityResult.estimatedConfidence * 100)}%.`
       : `SQL refined by ${geminiResult.result.model}.`;
 
-    return NextResponse.json({
+    const responseData = {
       ...baseResult,
       sql: safeSql,
       confidenceScore: Number(
@@ -217,8 +231,20 @@ export async function POST(request: NextRequest) {
       statusLabel: feasibilityResult && !feasibilityResult.feasible ? "Gemini Assist (Warnings)" : "Gemini Assist Active",
       statusDetail,
       feasibilityCheck: feasibilityResult ?? undefined,
+    };
+
+    agentActivityStore.completeAgent(agentName, {
+      sqlGenerated: true,
+      confidence: responseData.confidenceScore,
+      rowsExpected: feasibilityResult?.expectedRowsMax || 0,
     });
-  } catch {
+
+    return NextResponse.json(responseData);
+  } catch (error) {
+    agentActivityStore.errorAgent(
+      agentName,
+      error instanceof Error ? error.message : "Unknown error"
+    );
     return NextResponse.json({ error: "Unable to translate query." }, { status: 500 });
   }
 }
