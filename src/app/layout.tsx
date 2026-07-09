@@ -15,8 +15,8 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MedQuery AI",
-  description: "Natural language to clinical SQL translator for healthcare analytics.",
+  title: "EligibilityAI",
+  description: "AI-powered clinical trial patient screening. Transform clinical data into eligible trial subjects.",
 };
 
 export default function RootLayout({

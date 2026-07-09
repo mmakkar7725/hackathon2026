@@ -3,8 +3,8 @@
 import { BrainCircuit, CheckCircle2, Circle, Database, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
+
 import { AgentActivityPanel } from "@/components/agent-activity-panel";
-import { HistoryPanel } from "@/components/history-panel";
 import { QueryInputPanel } from "@/components/query-input-panel";
 import { SamplePrompts } from "@/components/sample-prompts";
 import { SqlOutput } from "@/components/sql-output";
@@ -152,8 +152,6 @@ export function NlpWorkspace() {
     history,
     setPrompt,
     setResult,
-    loadFromHistory,
-    clearHistory,
   } = useQueryStore();
 
   const downloadMatchedPatientsCsv = useCallback(() => {
@@ -453,7 +451,7 @@ export function NlpWorkspace() {
   });
 
   const limitedPrompts = samplePrompts.slice(0, 2);
-  const limitedHistory = history.slice(0, 5);
+
   const sql =
     currentResult?.sql ??
     "-- SQL output will appear after you translate a natural language medical question.";
@@ -491,165 +489,6 @@ export function NlpWorkspace() {
 
   return (
     <>
-      {/* Agent Activity Panel - Show real-time agent status */}
-      <section className="fade-in-up mb-4" style={{ animationDelay: "0ms" }}>
-        <AgentActivityPanel pollingInterval={800} />
-      </section>
-
-      <section
-        ref={pipelineSectionRef}
-        className="fade-in-up grid gap-4 lg:grid-cols-[1.2fr_1fr]"
-        style={{ animationDelay: "90ms" }}
-      >
-        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 shadow-[var(--ds-elevation-1)]">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <Badge>
-              <BrainCircuit size={12} /> NLP Parsing
-            </Badge>
-            <Badge>
-              <Database size={12} /> SQL Generation
-            </Badge>
-            {currentResult?.translationMode === "gemini-assist" ? (
-              <Badge tone="success">Gemini Assist{currentResult.modelUsed ? ` (${currentResult.modelUsed})` : ""}</Badge>
-            ) : (
-              <Badge tone="neutral">Deterministic Mode</Badge>
-            )}
-          </div>
-          {currentResult?.statusLabel ? (
-            <>
-              <p className="ds-body font-medium text-[var(--text-primary)]">Status: {currentResult.statusLabel}</p>
-              {currentResult.statusDetail ? (
-                <p className="ds-caption mt-1 text-[var(--text-secondary)]">{currentResult.statusDetail}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="ds-caption text-[var(--text-secondary)]">
-              Run a query translation to view processing status.
-            </p>
-          )}
-
-          {currentResult?.feasibilityCheck && (
-            <div
-              className={`mt-3 rounded-[var(--ds-radius-sm)] border px-3 py-2.5 ${
-                currentResult.feasibilityCheck.feasible
-                  ? "border-amber-200 bg-amber-50"
-                  : "border-orange-200 bg-orange-50"
-              }`}
-            >
-              <p className={`ds-caption font-semibold ${
-                currentResult.feasibilityCheck.feasible
-                  ? "text-amber-900"
-                  : "text-orange-900"
-              }`}>
-                Query Feasibility: {currentResult.feasibilityCheck.feasible ? "✓ Viable" : "⚠ Limited Results Expected"}
-              </p>
-              <p className={`ds-caption mt-1 ${
-                currentResult.feasibilityCheck.feasible
-                  ? "text-amber-800"
-                  : "text-orange-800"
-              }`}>
-                Expected matches: {currentResult.feasibilityCheck.expectedRowsMin}–{currentResult.feasibilityCheck.expectedRowsMax} rows
-              </p>
-              {currentResult.feasibilityCheck.warnings.length > 0 && (
-                <div className="mt-1.5">
-                  <p className={`ds-caption font-medium ${
-                    currentResult.feasibilityCheck.feasible
-                      ? "text-amber-800"
-                      : "text-orange-800"
-                  }`}>
-                    Warnings:
-                  </p>
-                  <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
-                    currentResult.feasibilityCheck.feasible
-                      ? "text-amber-800"
-                      : "text-orange-800"
-                  }`}>
-                    {currentResult.feasibilityCheck.warnings.slice(0, 2).map((warning, idx) => (
-                      <li key={idx} className="ds-caption">
-                        {warning}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {currentResult.feasibilityCheck.suggestions.length > 0 && (
-                <div className="mt-1.5">
-                  <p className={`ds-caption font-medium ${
-                    currentResult.feasibilityCheck.feasible
-                      ? "text-amber-800"
-                      : "text-orange-800"
-                  }`}>
-                    Suggestions:
-                  </p>
-                  <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
-                    currentResult.feasibilityCheck.feasible
-                      ? "text-amber-800"
-                      : "text-orange-800"
-                  }`}>
-                    {currentResult.feasibilityCheck.suggestions.slice(0, 2).map((suggestion, idx) => (
-                      <li key={idx} className="ds-caption">
-                        {suggestion}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2.5 shadow-[var(--ds-elevation-1)]">
-          <p className="ds-caption mb-2 font-semibold tracking-[0.07em] text-[var(--text-secondary)] uppercase">Pipeline Timeline</p>
-          {pipelineStep === "idle" ? (
-            <p className="ds-caption text-[var(--text-secondary)]">
-              Run <strong>Translate &amp; Execute</strong> to populate the pipeline.
-            </p>
-          ) : (
-            <>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {compactTimeline.map((item) => {
-                  const status = timelineState[item.key];
-                  const isDone = status === "done";
-                  const isActive = status === "active";
-                  const detailText = isDone
-                    ? item.doneDetail
-                    : isActive
-                      ? item.activeDetail
-                      : item.pendingDetail;
-
-                  return (
-                    <div
-                      key={item.key}
-                      className={`min-w-[108px] rounded-[var(--ds-radius-sm)] border px-2 py-1.5 ${
-                        isDone
-                          ? "border-[var(--brand-500)] bg-[color:rgba(58,123,213,0.08)]"
-                          : isActive
-                            ? "border-[var(--brand-400)] bg-[var(--surface-1)]"
-                            : "border-[var(--border)] bg-[var(--surface-0)]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {isDone ? (
-                          <CheckCircle2 size={12} className="text-[var(--brand-600)]" />
-                        ) : isActive ? (
-                          <Loader2 size={12} className="animate-spin text-[var(--brand-600)]" />
-                        ) : (
-                          <Circle size={12} className="text-[var(--text-muted)]" />
-                        )}
-                        <p className="ds-caption font-medium text-[var(--text-primary)]">{item.label}</p>
-                      </div>
-                      <p className="ds-caption mt-0.5 text-[var(--text-secondary)]">{detailText}</p>
-                    </div>
-                  );
-                })}
-              </div>
-              {pipelineStep === "done" && (
-                <p className="ds-caption mt-2 text-center font-medium text-[var(--brand-600)]">Pipeline complete.</p>
-              )}
-            </>
-          )}
-        </div>
-      </section>
 
       <section className="fade-in-up grid gap-4 lg:grid-cols-[1.1fr_1fr]" style={{ animationDelay: "120ms" }}>
         <div className="space-y-3">
@@ -732,8 +571,8 @@ export function NlpWorkspace() {
                       </tr>
                     </thead>
                     <tbody>
-                      {step1Result.rows.map((row) => (
-                        <tr key={`${row.patientId}-${row.fullName}`} className="align-top">
+                      {step1Result.rows.map((row, index) => (
+                        <tr key={`${row.patientId}-${row.fullName}-${index}`} className="align-top">
                           <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-primary)]">
                             <p className="ds-body font-medium">{row.fullName}</p>
                             <p className="text-[var(--text-secondary)]">{row.patientId}</p>
@@ -767,68 +606,46 @@ export function NlpWorkspace() {
             </p>
           )}
 
-          <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3" open>
-            <summary className="ds-body cursor-pointer font-medium text-[var(--text-primary)]">Gemini Match Insights</summary>
-            {isGeneratingInsights ? (
-              <div className="mt-2">
-                <p className="ds-caption text-[var(--text-secondary)]">Analyzing match expansion opportunities with Gemini...</p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
-                  <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--brand-500)]" />
-                </div>
-              </div>
-            ) : queryInsights ? (
-              <div className="mt-2 space-y-3">
-                <p className="ds-caption text-[var(--text-secondary)]">{queryInsights.overview}</p>
-                <p className="ds-caption text-[var(--text-secondary)]">
-                  Source: {queryInsights.source === "gemini" ? `Gemini (${queryInsights.model ?? "model"})` : "Deterministic fallback"}
-                </p>
-
-                <div>
-                  <p className="ds-caption font-medium text-[var(--text-primary)]">If we drop some filters:</p>
-                  <ul className="mt-1 space-y-1">
-                    {queryInsights.relaxationAdvice.length > 0 ? (
-                      queryInsights.relaxationAdvice.map((item) => (
-                        <li key={item.droppedFilter} className="ds-caption text-[var(--text-secondary)]">
-                          {item.droppedFilter}: +{item.additionalPatients} patients. {item.rationale}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="ds-caption text-[var(--text-secondary)]">No high-impact relaxation suggestion found.</li>
-                    )}
-                  </ul>
-                </div>
-
-                <div>
-                  <p className="ds-caption font-medium text-[var(--text-primary)]">Patient join chances:</p>
-                  <ul className="mt-1 max-h-[180px] space-y-1 overflow-auto pr-1">
-                    {queryInsights.patientJoinChances.length > 0 ? (
-                      queryInsights.patientJoinChances.map((item) => (
-                        <li key={`${item.patientId}-${item.fullName}`} className="ds-caption text-[var(--text-secondary)]">
-                          {item.fullName} ({item.patientId}): {item.chancePercent}% chance. {item.reason}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="ds-caption text-[var(--text-secondary)]">No near-miss patients to score.</li>
-                    )}
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <p className="ds-caption mt-2 text-[var(--text-secondary)]">
-                Gemini insights will appear here automatically after the pipeline runs.
+          {queryInsights && (
+            <div className="mt-4 rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-1)] p-3">
+              <p className="ds-caption font-semibold text-[var(--text-primary)] mb-2">
+                💡 Gemini Insights {queryInsights.source === "gemini" && `(${queryInsights.model})`}
               </p>
-            )}
-          </details>
-        </section>
-      </section>
+              <p className="ds-caption text-[var(--text-secondary)] mb-3">{queryInsights.overview}</p>
+              
+              {queryInsights.relaxationAdvice.length > 0 && (
+                <div className="mb-3">
+                  <p className="ds-caption font-medium text-[var(--text-secondary)] mb-1">Try relaxing filters:</p>
+                  <ul className="space-y-1">
+                    {queryInsights.relaxationAdvice.map((advice, idx) => (
+                      <li key={idx} className="ds-caption text-[var(--text-secondary)] text-sm">
+                        • Drop <strong>{advice.droppedFilter}</strong> → {advice.additionalPatients} more patients
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-      <section className="fade-in-up" style={{ animationDelay: "285ms" }}>
-        <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-3 shadow-[var(--ds-elevation-1)]">
-          <summary className="ds-body cursor-pointer font-semibold text-[var(--text-primary)]">Recent Queries</summary>
-          <div className="mt-3">
-            <HistoryPanel history={limitedHistory} onLoad={loadFromHistory} onClear={clearHistory} />
+              {queryInsights.patientJoinChances.length > 0 && (
+                <div>
+                  <p className="ds-caption font-medium text-[var(--text-secondary)] mb-1">Near-match patients:</p>
+                  <ul className="space-y-1">
+                    {queryInsights.patientJoinChances.map((patient, idx) => (
+                      <li key={idx} className="ds-caption text-[var(--text-secondary)] text-sm">
+                        • <strong>{patient.fullName}</strong> ({patient.patientId}): {patient.chancePercent}% match - {patient.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2 mt-4">
+            <p className="ds-caption text-[var(--text-secondary)] italic">Demo Illustration Only</p>
+            <AgentActivityPanel pollingInterval={500} />
           </div>
-        </details>
+        </section>
       </section>
 
       <section className="fade-in-up grid gap-6 lg:grid-cols-2" style={{ animationDelay: "280ms" }}>
@@ -839,7 +656,106 @@ export function NlpWorkspace() {
           </div>
         </details>
 
-        <div className="rounded-[var(--ds-radius-sm)] border-2 border-amber-200 bg-amber-50 p-4 shadow-[var(--ds-elevation-1)]">
+        {currentResult?.feasibilityCheck && (
+          <div
+            className={`rounded-[var(--ds-radius-sm)] border px-3 py-3 ${
+              currentResult.feasibilityCheck.feasible
+                ? "border-amber-200 bg-amber-50"
+                : "border-orange-200 bg-orange-50"
+            }`}
+          >
+            <p className={`ds-caption font-semibold ${
+              currentResult.feasibilityCheck.feasible
+                ? "text-amber-900"
+                : "text-orange-900"
+            }`}>
+              Query Feasibility: {currentResult.feasibilityCheck.feasible ? "✓ Viable" : "⚠ Limited Results Expected"}
+            </p>
+            <p className={`ds-caption mt-1 ${
+              currentResult.feasibilityCheck.feasible
+                ? "text-amber-800"
+                : "text-orange-800"
+            }`}>
+              Expected matches: {currentResult.feasibilityCheck.expectedRowsMin}–{currentResult.feasibilityCheck.expectedRowsMax} rows
+            </p>
+            {currentResult.feasibilityCheck.warnings.length > 0 && (
+              <div className="mt-1.5">
+                <p className={`ds-caption font-medium ${
+                  currentResult.feasibilityCheck.feasible
+                    ? "text-amber-800"
+                    : "text-orange-800"
+                }`}>
+                  Warnings:
+                </p>
+                <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
+                  currentResult.feasibilityCheck.feasible
+                    ? "text-amber-800"
+                    : "text-orange-800"
+                }`}>
+                  {currentResult.feasibilityCheck.warnings.slice(0, 2).map((warning, idx) => (
+                    <li key={idx} className="ds-caption">
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {currentResult.feasibilityCheck.suggestions.length > 0 && (
+              <div className="mt-1.5">
+                <p className={`ds-caption font-medium ${
+                  currentResult.feasibilityCheck.feasible
+                    ? "text-amber-800"
+                    : "text-orange-800"
+                }`}>
+                  Suggestions:
+                </p>
+                <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
+                  currentResult.feasibilityCheck.feasible
+                    ? "text-amber-800"
+                    : "text-orange-800"
+                }`}>
+                  {currentResult.feasibilityCheck.suggestions.slice(0, 2).map((suggestion, idx) => (
+                    <li key={idx} className="ds-caption">
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="fade-in-up" style={{ animationDelay: "290ms" }} ref={pipelineSectionRef}>
+        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 shadow-[var(--ds-elevation-1)]">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <Badge>
+              <BrainCircuit size={12} /> NLP Parsing
+            </Badge>
+            <Badge>
+              <Database size={12} /> SQL Generation
+            </Badge>
+            {currentResult?.translationMode === "gemini-assist" ? (
+              <Badge tone="success">Gemini Assist{currentResult.modelUsed ? ` (${currentResult.modelUsed})` : ""}</Badge>
+            ) : (
+              <Badge tone="neutral">Deterministic Mode</Badge>
+            )}
+          </div>
+          {currentResult?.statusLabel ? (
+            <>
+              <p className="ds-body font-medium text-[var(--text-primary)]">Status: {currentResult.statusLabel}</p>
+              {currentResult.statusDetail ? (
+                <p className="ds-caption mt-1 text-[var(--text-secondary)]">{currentResult.statusDetail}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="ds-caption text-[var(--text-secondary)]">
+              Run a query translation to view processing status.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-[var(--ds-radius-sm)] border-2 border-amber-200 bg-amber-50 p-4 shadow-[var(--ds-elevation-1)] mt-4">
           <h3 className="ds-body font-semibold text-amber-900 mb-2">⚠️ Clinical Use Disclaimer</h3>
           <ul className="space-y-1.5">
             <li className="ds-caption text-amber-800">

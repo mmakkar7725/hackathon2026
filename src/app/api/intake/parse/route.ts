@@ -485,6 +485,7 @@ function buildFallbackResponse(input: {
 
 export async function POST(request: NextRequest) {
   try {
+
     const form = await request.formData();
     const filePart = form.get("file");
     const manualTextPart = form.get("manualText");
@@ -651,7 +652,7 @@ export async function POST(request: NextRequest) {
 
               if (hasCoreData) {
                 const normalized = normalizeResponse(normalizedFromText);
-                return NextResponse.json(normalized);
+              return NextResponse.json(normalized);
               }
             } else {
               parseMeta = {
@@ -728,20 +729,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(fallbackResponse);
-  } catch {
-    const emergencyFallback = buildFallbackResponse({
-      text: "",
-      sourceFileName: "Unknown Upload",
-      statusDetail:
-        "Parser error occurred. A minimal fallback record was generated so ingestion can continue.",
-      parseMeta: {
-        extractionSource: "error",
-        extractedTextLength: 0,
-        finalTextLength: 0,
-        usedTranscription: false,
-      },
-    });
-
-    return NextResponse.json(emergencyFallback);
+  } catch (error) {
+    throw error;
   }
 }

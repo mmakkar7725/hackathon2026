@@ -108,8 +108,8 @@ export function QueryInputPanel({
         Natural Language to Clinical SQL
       </h2>
       <p className="ds-body mb-4 text-[var(--text-secondary)]">
-        Enter a clinical question and MedQuery AI will identify coded medical concepts, derive filters,
-        and generate explainable SQL.
+        Enter a clinical question and EligibilityAI will identify coded medical concepts, apply trial filters,
+        and generate SQL to find eligible patients.
       </p>
 
       <Textarea
