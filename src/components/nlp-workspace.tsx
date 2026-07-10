@@ -656,36 +656,6 @@ export function NlpWorkspace() {
           </div>
         </details>
       </section>
-
-      <section className="fade-in-up" style={{ animationDelay: "290ms" }} ref={pipelineSectionRef}>
-        <div className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 shadow-[var(--ds-elevation-1)]">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <Badge>
-              <BrainCircuit size={12} /> NLP Parsing
-            </Badge>
-            <Badge>
-              <Database size={12} /> SQL Generation
-            </Badge>
-            {currentResult?.translationMode === "gemini-assist" ? (
-              <Badge tone="success">Gemini Assist{currentResult.modelUsed ? ` (${currentResult.modelUsed})` : ""}</Badge>
-            ) : (
-              <Badge tone="neutral">Deterministic Mode</Badge>
-            )}
-          </div>
-          {currentResult?.statusLabel ? (
-            <>
-              <p className="ds-body font-medium text-[var(--text-primary)]">Status: {currentResult.statusLabel}</p>
-              {currentResult.statusDetail ? (
-                <p className="ds-caption mt-1 text-[var(--text-secondary)]">{currentResult.statusDetail}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="ds-caption text-[var(--text-secondary)]">
-              Run a query translation to view processing status.
-            </p>
-          )}
-        </div>
-      </section>
     </>
   );
 }

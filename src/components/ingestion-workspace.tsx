@@ -1,6 +1,6 @@
 "use client";
 
-import { FileUp, FlaskConical, Loader2, Trash2 } from "lucide-react";
+import { FlaskConical, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AgentActivityPanel } from "@/components/agent-activity-panel";
@@ -232,9 +232,13 @@ export function IngestionWorkspace() {
       }
 
       setTables(readTables());
-      setSelectedFiles([]);
-      // Clear file progress after a short delay
-      setTimeout(() => setFileProgress([]), 2000);
+      // Clear file progress, status display, and filename after 2 seconds
+      setTimeout(() => {
+        setSelectedFiles([]);
+        setFileProgress([]);
+        setStatusLabel(null);
+        setStatusDetail(null);
+      }, 2000);
     } catch (cause) {
       const detail =
         cause instanceof Error && cause.message
@@ -270,6 +274,7 @@ export function IngestionWorkspace() {
               onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
               disabled={isParsing}
               className="file-input-accent ds-body block w-full rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2"
+              style={{ color: "transparent" }}
             />
           </div>
           <Button onClick={onParseFiles} disabled={isParsing || selectedFiles.length === 0}>
@@ -498,11 +503,6 @@ export function IngestionWorkspace() {
           </details>
         </Card>
       ) : null}
-
-      <div className="ds-caption flex items-center gap-2 text-[var(--text-secondary)]">
-        <FileUp size={14} />
-        Ingestion supports multi-format uploads and stores parsed rows locally for demo purposes.
-      </div>
 
       <div className="mt-2 flex gap-2">
         <Button variant="ghost" onClick={onClearTables} size="sm">
