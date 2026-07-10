@@ -1,174 +1,179 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
+@import url("https://ds.cdn.questdiagnostics.com/DSP-Core.2026.06.css");
 
 :root {
-  /* ── DSP typography ─────────────────────────────────────────── */
-  --ds-font-family-base: "Roboto", sans-serif;
-  --ds-font-display-xl: 500 36px/1.12 "Roboto", sans-serif;
-  --ds-font-display-lg: 500 28px/1.2 "Roboto", sans-serif;
-  --ds-font-h1: 700 24px/1.33 "Roboto", sans-serif;
-  --ds-font-h2: 700 20px/1.4 "Roboto", sans-serif;
-  --ds-font-h3: 700 18px/1.35 "Roboto", sans-serif;
-  --ds-font-h4: 700 16px/1.3 "Roboto", sans-serif;
-  --ds-font-h5: 700 14px/1.35 "Roboto", sans-serif;
-  --ds-font-body-xl: 400 20px/1.5 "Roboto", sans-serif;
-  --ds-font-body-lg: 400 18px/1.5 "Roboto", sans-serif;
-  --ds-font-body-md: 400 16px/1.5 "Roboto", sans-serif;
-  --ds-font-body-base: 400 14px/1.57 "Roboto", sans-serif;
-  --ds-font-body-sm: 400 12px/1.6 "Roboto", sans-serif;
+  /* ── Official Quest Diagnostics Design System (DSP) Color Palette ────────── */
+  /* PRIMARY: Green */
+  --ds-color-green-50: #effdea;
+  --ds-color-green-100: #e1f3db;
+  --ds-color-green-200: #c9e5c4;
+  --ds-color-green-300: #95c58e;
+  --ds-color-green-400: #659f5c;
+  --ds-color-green-500: #35792a;  /* Primary brand green */
+  --ds-color-green-600: #266a27;
+  --ds-color-green-700: #175b23;
+  --ds-color-green-800: #034c1f;
+
+  /* SECONDARY: Blue */
+  --ds-color-blue-50: #e9f5fa;
+  --ds-color-blue-100: #d4eaf2;
+  --ds-color-blue-200: #c5e2ef;
+  --ds-color-blue-300: #9fd0e4;
+  --ds-color-blue-400: #6db4d6;
+  --ds-color-blue-500: #3995bb;
+  --ds-color-blue-600: #0c7eab;   /* Secondary brand blue */
+  --ds-color-blue-700: #0e668a;
+  --ds-color-blue-800: #024c6a;
+
+  /* NEUTRAL: Gray */
+  --ds-color-white: #ffffff;
+  --ds-color-gray-50: #fafafa;
+  --ds-color-gray-100: #f5f5f5;
+  --ds-color-gray-200: #e6e6e6;
+  --ds-color-gray-300: #d1d1d1;
+  --ds-color-gray-400: #9a9a9a;
+  --ds-color-gray-500: #808080;
+  --ds-color-gray-600: #646464;
+  --ds-color-gray-700: #4a4a4a;
+  --ds-color-gray-800: #323232;
+  --ds-color-gray-900: #1a1a1a;
+
+  /* UTILITY: Informative (info state) */
+  --ds-color-informative-50: #f7f9fe;
+  --ds-color-informative-100: #e7eefb;
+  --ds-color-informative-200: #cfdef7;
+  --ds-color-informative-300: #afc8f2;
+  --ds-color-informative-400: #87acec;
+  --ds-color-informative-500: #578ae5;
+  --ds-color-informative-600: #2d6dde;
+  --ds-color-informative-700: #2056b3;
+
+  /* UTILITY: Warning (alert state) */
+  --ds-color-warning-50: #fffaf0;
+  --ds-color-warning-100: #ffe8c5;
+  --ds-color-warning-200: #ffd999;
+  --ds-color-warning-300: #ffc966;
+  --ds-color-warning-400: #ffb733;
+  --ds-color-warning-500: #ffa500;
+  --ds-color-warning-600: #ff9500;
+
+  /* UTILITY: Success (positive state) */
+  --ds-color-success-50: #f0fdf4;
+  --ds-color-success-100: #dcfce7;
+  --ds-color-success-200: #bbf7d0;
+  --ds-color-success-300: #86efac;
+  --ds-color-success-400: #4ade80;
+  --ds-color-success-500: #22c55e;
+  --ds-color-success-600: #16a34a;
+
+  /* UTILITY: Error (negative state) */
+  --ds-color-error-50: #fef2f2;
+  --ds-color-error-100: #fee2e2;
+  --ds-color-error-200: #fecaca;
+  --ds-color-error-300: #fca5a5;
+  --ds-color-error-400: #f87171;
+  --ds-color-error-500: #ef4444;
+  --ds-color-error-600: #dc2626;
+
+  /* EXTENDED: Amethyst */
+  --ds-color-amethyst-50: #f3f1f5;
+  --ds-color-amethyst-100: #f0eaf5;
+  --ds-color-amethyst-200: #ded4e9;
+  --ds-color-amethyst-300: #d2c0e3;
+  --ds-color-amethyst-400: #bba2d3;
+  --ds-color-amethyst-500: #a68ec2;
+  --ds-color-amethyst-600: #8763ae;
+  --ds-color-amethyst-700: #774aad;
+
+  /* ── Official DSP Typography (Roboto) ──────────────────────── */
+  --ds-font-family-base: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ds-font-display-xl: 500 36px/1.12 var(--ds-font-family-base);  /* Roboto Medium */
+  --ds-font-display-lg: 500 28px/1.2 var(--ds-font-family-base);   /* Roboto Medium */
+  --ds-font-h1: 700 24px/1.33 var(--ds-font-family-base);          /* Roboto Bold */
+  --ds-font-h2: 700 20px/1.4 var(--ds-font-family-base);           /* Roboto Bold */
+  --ds-font-h3: 700 18px/1.35 var(--ds-font-family-base);          /* Roboto Bold */
+  --ds-font-h4: 700 16px/1.3 var(--ds-font-family-base);           /* Roboto Bold */
+  --ds-font-h5: 700 14px/1.35 var(--ds-font-family-base);          /* Roboto Bold */
+  --ds-font-body-xl: 400 20px/1.5 var(--ds-font-family-base);      /* Roboto Regular */
+  --ds-font-body-lg: 400 18px/1.5 var(--ds-font-family-base);      /* Roboto Regular */
+  --ds-font-body-md: 400 16px/1.5 var(--ds-font-family-base);      /* Roboto Regular */
+  --ds-font-body-base: 400 14px/1.57 var(--ds-font-family-base);   /* Roboto Regular */
+  --ds-font-body-sm: 400 12px/1.6 var(--ds-font-family-base);      /* Roboto Regular */
   --ds-font-regular: 400;
   --ds-font-medium: 500;
   --ds-font-bold: 700;
-  --ds-font-italic: italic;
 
-  /* ── DSP icon sizes ─────────────────────────────────────────── */
+  /* ── Semantic Colors (mapped to Official DSP) ───────────────── */
+  --brand-700: var(--ds-color-green-500);    /* Primary: DSP Green */
+  --brand-500: var(--ds-color-green-400);
+  --brand-400: var(--ds-color-green-300);
+  --text-primary: var(--ds-color-gray-900);
+  --text-secondary: var(--ds-color-gray-700);
+  --text-muted: var(--ds-color-gray-500);
+  --surface-0: var(--ds-color-white);
+  --surface-1: var(--ds-color-gray-100);
+  --surface-2: var(--ds-color-gray-200);
+  --surface-3: var(--ds-color-gray-300);
+  --border: var(--ds-color-gray-300);
+
+  /* ── DSP icon sizes ────────────────────────────────────────── */
   --ds-icon-sm: 16px;
   --ds-icon-md: 24px;
   --ds-icon-lg: 32px;
 
-  /* ── DSP radius ─────────────────────────────────────────────── */
-  --ds-radius-sm: 8px;
-  --ds-radius-md: 12px;
-  --ds-radius-lg: 16px;
+  /* ── DSP radius (official) ─────────────────────────────────── */
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 6px;
+  --ds-radius-lg: 8px;
 
-  /* ── DSP elevations (exact DSP values) ──────────────────────── */
-  --ds-elevation-1: 0 2px 4px -2px rgba(24,39,75,.06), 0 4px 4px -2px rgba(24,39,75,.06);
-  --ds-elevation-2: 0 4px 6px -4px rgba(24,39,75,.12), 0 8px 8px -4px rgba(24,39,75,.08);
-  --ds-elevation-3: 0 6px 8px -6px rgba(24,39,75,.12), 0 8px 16px -6px rgba(24,39,75,.08);
-  --ds-elevation-4: 0 6px 12px -6px rgba(24,39,75,.12), 0 8px 24px -4px rgba(24,39,75,.08);
-  --ds-elevation-5: 0 6px 14px -6px rgba(24,39,75,.12), 0 10px 32px -4px rgba(24,39,75,.1);
-  --ds-elevation-6: 0 8px 18px -6px rgba(24,39,75,.12), 0 12px 42px -4px rgba(24,39,75,.12);
-  --ds-elevation-7: 0 8px 22px -6px rgba(24,39,75,.12), 0 14px 64px -4px rgba(24,39,75,.12);
-  --ds-elevation-8: 0 8px 28px -6px rgba(24,39,75,.12), 0 18px 88px -4px rgba(24,39,75,.14);
-
-  /* ── DSP green ──────────────────────────────────────────────── */
-  --ds-color-green-900: #023517;
-  --ds-color-green-800: #034c1f;
-  --ds-color-green-700: #175b23;
-  --ds-color-green-600: #266a27;
-  --ds-color-green-500: #35792a;
-  --ds-color-green-400: #659f5c;
-  --ds-color-green-300: #95c58e;
-  --ds-color-green-200: #c9e5c4;
-  --ds-color-green-100: #e1f3db;
-  --ds-color-green-50:  #effdea;
-
-  /* ── DSP gray (exact DSP tokens) ────────────────────────────── */
-  --ds-color-gray-900: #151515;
-  --ds-color-gray-800: #272727;
-  --ds-color-gray-700: #4a4a4a;
-  --ds-color-gray-600: #646464;
-  --ds-color-gray-500: #808080;
-  --ds-color-gray-400: #9a9a9a;
-  --ds-color-gray-300: #d1d1d1;
-  --ds-color-gray-200: #e6e6e6;
-  --ds-color-gray-100: #f5f5f5;
-  --ds-color-gray-50:  #fafafa;
-  --ds-color-white: #ffffff;
-  --ds-color-black: #000000;
-
-  /* ── DSP blue ───────────────────────────────────────────────── */
-  --ds-color-blue-900: #05394e;
-  --ds-color-blue-800: #024c6a;
-  --ds-color-blue-700: #0e668a;
-  --ds-color-blue-600: #0c7eab;
-  --ds-color-blue-500: #3995bb;
-  --ds-color-blue-400: #6db4d6;
-  --ds-color-blue-300: #9fd0e4;
-  --ds-color-blue-200: #c5e2ef;
-  --ds-color-blue-100: #d4eaf2;
-  --ds-color-blue-50:  #e9f5fa;
-
-  /* ── DSP semantic colors ────────────────────────────────────── */
-  --ds-color-success-600: #348227;
-  --ds-color-success-700: #236818;
-  --ds-color-success-50:  #f7faf7;
-  --ds-color-error-600: #e2142c;
-  --ds-color-error-700: #b41322;
-  --ds-color-error-50:  #fff8f6;
-  --ds-color-alert-300: #feba42;
-  --ds-color-alert-500: #b5822f;
-  --ds-color-alert-700: #77531f;
-  --ds-color-alert-50:  #fff9eb;
-  --ds-color-informative-600: #2d6dde;
-  --ds-color-informative-700: #2056b5;
-  --ds-color-informative-50:  #f7f9fe;
-
-  /* ── App surface / text / brand tokens ──────────────────────── */
-  --background: var(--ds-color-gray-100);
-  --surface-0: var(--ds-color-white);
-  --surface-1: #f3f8f5;
-  --surface-2: #e8f2ec;
-  --surface-3: #dcebe2;
-  --text-primary: var(--ds-color-gray-900);
-  --text-secondary: var(--ds-color-gray-700);
-  --text-muted: var(--ds-color-gray-500);
-  --border: var(--ds-color-gray-300);
-  --brand-400: var(--ds-color-green-400);
-  --brand-500: var(--ds-color-green-500);
-  --brand-600: var(--ds-color-green-600);
-  --brand-700: var(--ds-color-green-700);
-  --accent: var(--ds-color-blue-600);
-
-  /* ── Code panel ─────────────────────────────────────────────── */
-  --code-bg: var(--ds-color-blue-50);
-  --code-fg: var(--ds-color-blue-900);
-  --code-border: var(--ds-color-blue-200);
-  --code-keyword: var(--ds-color-blue-700);
-  --code-operator: #36577f;
-  --code-function: var(--ds-color-green-700);
-  --code-punctuation: var(--ds-color-blue-600);
-  --code-string: var(--ds-color-green-600);
-  --code-number: #9a5c18;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--text-primary);
-  --font-sans: var(--font-heading);
-  --font-mono: var(--font-mono);
-}
-
-.dark {
-  --background: #0f1912;
-  --surface-0: #16231a;
-  --surface-1: #1b2d21;
-  --surface-2: #213828;
-  --surface-3: #294733;
-  --text-primary: #e5f2e8;
-  --text-secondary: #c5dccb;
-  --text-muted: #9fbeaa;
-  --border: #355240;
-  --brand-400: var(--ds-color-green-400);
-  --brand-500: #5ea663;
-  --brand-600: #4d9754;
-  --brand-700: #3f8748;
-  --accent: #78a8ff;
-  --code-bg: #10263e;
-  --code-fg: #eaf3ff;
-  --code-border: rgba(224, 235, 255, 0.16);
-  --code-keyword: #7bb0ff;
-  --code-operator: #c2d8ff;
-  --code-function: #7fd1a2;
-  --code-punctuation: #c3d8ea;
-  --code-string: #80d5a6;
-  --code-number: #f7c074;
-  /* keep DSP gray/blue tokens readable in dark mode */
-  --ds-color-gray-900: #e5f2e8;
-  --ds-color-gray-700: #c5dccb;
-  --ds-color-gray-500: #9fbeaa;
-  --ds-color-gray-300: #355240;
+  /* ── DSP elevations (official DSP style) ────────────────────── */
+  --ds-elevation-1: 0 1px 2px rgba(26, 26, 26, 0.05);
+  --ds-elevation-2: 0 2px 4px rgba(26, 26, 26, 0.08);
+  --ds-elevation-3: 0 4px 8px rgba(26, 26, 26, 0.1);
+  --ds-elevation-4: 0 6px 12px rgba(26, 26, 26, 0.12);
+  --ds-elevation-5: 0 8px 16px rgba(26, 26, 26, 0.15);
+  --ds-elevation-6: 0 12px 24px rgba(26, 26, 26, 0.18);
+  --ds-elevation-7: 0 16px 32px rgba(26, 26, 26, 0.2);
+  --ds-elevation-8: 0 20px 40px rgba(26, 26, 26, 0.25);
 }
 
 body {
-  background: var(--background);
-  color: var(--text-primary);
+  background: var(--ds-color-gray-100);
+  color: var(--ds-color-gray-900);
+  font-family: var(--ds-font-family-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────── */
+/* QUEST DIAGNOSTICS DESIGN SYSTEM SEMANTIC & LAYOUT STYLES */
+/* ──────────────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --color-background: var(--ds-color-gray-100);
+  --color-foreground: var(--ds-color-gray-900);
+  --font-sans: var(--ds-font-family-base);
+}
+
+.dark {
+  --ds-color-gray-900: #F5F5F5;
+  --ds-color-gray-700: #ACACAC;
+  --ds-color-gray-500: #757575;
+  --ds-color-gray-300: #3D3D3D;
+  --ds-color-gray-100: #1A1A1A;
+}
+
+body {
+  background: var(--ds-color-gray-100);
+  color: var(--ds-color-gray-900);
   font: var(--ds-font-body-base);
 }
 
 .dashboard-glow {
-  background: radial-gradient(circle at 0% 0%, rgba(53, 121, 42, 0.14), transparent 32%),
-    radial-gradient(circle at 100% 20%, rgba(24, 80, 163, 0.12), transparent 28%),
-    linear-gradient(180deg, rgba(241, 248, 243, 0.7), transparent 40%);
+  background: radial-gradient(circle at 0% 0%, rgba(0, 119, 182, 0.08), transparent 32%),
+    radial-gradient(circle at 100% 20%, rgba(0, 77, 124, 0.06), transparent 28%),
+    linear-gradient(180deg, rgba(240, 248, 255, 0.6), transparent 40%);
 }
 
 .sql-scroll code {

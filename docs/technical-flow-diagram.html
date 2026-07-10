@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EligibilityAI – Technical Flow Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      padding: 32px;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      padding: 48px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      border-bottom: 3px solid #005b8e;
+      padding-bottom: 24px;
+      margin-bottom: 36px;
+    }
+
+    .header-left .subtitle {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #005b8e;
+      margin-bottom: 6px;
+    }
+
+    .header-left h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #0a1628;
+      line-height: 1.2;
+    }
+
+    .header-left .tagline {
+      font-size: 14px;
+      color: #555;
+      margin-top: 6px;
+    }
+
+    .header-right {
+      text-align: right;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .header-right .date { font-weight: 600; color: #444; }
+
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #005b8e;
+      border-left: 4px solid #005b8e;
+      padding-left: 12px;
+      margin-bottom: 20px;
+    }
+
+    .diagram-box {
+      background: #f9fbfd;
+      border: 1px solid #dde5ef;
+      border-radius: 8px;
+      padding: 24px 16px;
+      overflow: auto;
+    }
+
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .stack-card {
+      background: #f0f5fb;
+      border: 1px solid #c8d8ea;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .stack-card h3 {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #005b8e;
+      margin-bottom: 10px;
+    }
+
+    .stack-card ul {
+      list-style: none;
+      font-size: 12.5px;
+      color: #333;
+      line-height: 1.8;
+    }
+
+    .stack-card ul li::before {
+      content: '▸ ';
+      color: #005b8e;
+    }
+
+    .api-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .api-table th {
+      background: #005b8e;
+      color: white;
+      text-align: left;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+    }
+
+    .api-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #e5eaf0;
+      vertical-align: top;
+    }
+
+    .api-table tr:nth-child(even) td { background: #f5f8fc; }
+
+    .method {
+      font-family: monospace;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .get  { background: #e6f4ea; color: #1e7e34; }
+    .post { background: #e8f0fe; color: #1a73e8; }
+
+    .endpoint { font-family: monospace; font-size: 12px; color: #005b8e; }
+
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+
+    .agent-card {
+      border: 1px solid #dde5ef;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .agent-card h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0a1628;
+      margin-bottom: 6px;
+    }
+
+    .agent-card p {
+      font-size: 12px;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    .agent-card .tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      border-radius: 100px;
+      margin-bottom: 8px;
+    }
+
+    .tag-nlp    { background: #e8f0fe; color: #1a73e8; }
+    .tag-data   { background: #e6f4ea; color: #1e7e34; }
+    .tag-query  { background: #fce8e6; color: #c5221f; }
+    .tag-orch   { background: #fef3e2; color: #b06000; }
+
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e7ef;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: #999;
+    }
+
+    .print-btn {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      background: #005b8e;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,91,142,0.35);
+      transition: background 0.2s;
+    }
+
+    .print-btn:hover { background: #004470; }
+
+    @media print {
+      body { background: white; padding: 0; }
+      .page { box-shadow: none; border-radius: 0; padding: 32px; }
+      .print-btn { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <p class="subtitle">Clinical Trial AI Platform</p>
+      <h1>EligibilityAI</h1>
+      <p class="tagline">Enroll Smarter, Screen Faster &mdash; Technical Architecture & Flow Diagram</p>
+    </div>
+    <div class="header-right">
+      <div class="date">July 2026</div>
+      <div>Quest Diagnostics Hackathon</div>
+      <div style="margin-top:8px;font-size:11px;">Version 1.0</div>
+    </div>
+  </div>
+
+  <!-- END-TO-END FLOW -->
+  <div class="section">
+    <div class="section-title">End-to-End User Flow</div>
+    <div class="diagram-box">
+      <div class="mermaid">
+flowchart TD
+    U([👤 Trial Coordinator]) --> T1
+
+    subgraph TAB1["📁 Tab 1 — Clinical Data Ingestion"]
+        T1["Upload Clinical Files\n(PDF / Image / Text)"]
+        T1 --> A1["POST /api/intake/connectivity\nVerify Gemini API"]
+        A1 --> A2["POST /api/intake/parse\nExtract Clinical Data"]
+        A2 --> P1{"Parser Mode"}
+        P1 -- Gemini Available --> P2["intakeGeminiService\nAI Extraction"]
+        P1 -- Fallback --> P3["intakeFallbackParser\nRule-based Extraction"]
+        P2 --> DB[(localStorage\nDemographics Table\nMedical History Table)]
+        P3 --> DB
+        DB --> V1["Agent Activity Panel\nReal-time Status"]
+    end
+
+    subgraph TAB2["🔍 Tab 2 — Query Generation"]
+        T2["Enter Clinical Question\n(Natural Language)"]
+        T2 --> B1["POST /api/translate\nNLP → SQL Pipeline"]
+        B1 --> B2["nlpParser.ts\nExtract Concepts & Filters"]
+        B2 --> B3["medicalDictionaryService\nICD-10 / SNOMED Mapping"]
+        B3 --> B4["sqlGenerator.ts\nGenerate Base SQL"]
+        B4 --> B5{"Gemini Available?"}
+        B5 -- Yes --> B6["geminiService.ts\nRefine SQL + Feasibility Check"]
+        B5 -- No --> B7["Return Base SQL"]
+        B6 --> B8["localQueryRunner.ts\nExecute Against localStorage"]
+        B7 --> B8
+        B8 --> B9["POST /api/query-insights\nGemini AI Insights"]
+        B9 --> R1["Query Results\n+ Matched Patients"]
+        R1 --> R2["💡 Gemini Insights\nRelaxation Advice\nNear-Match Patients"]
+        R2 --> R3["Agent Activity Panel\nPipeline Status"]
+    end
+
+    DB -.->|"Read Tables"| TAB2
+    V1 -.->|"GET /api/agent-status"| V1
+    R3 -.->|"GET /api/agent-status"| R3
+
+    style TAB1 fill:#e8f5e9,stroke:#43a047,stroke-width:2px
+    style TAB2 fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
+    style DB fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+      </div>
+    </div>
+  </div>
+
+  <!-- AGENT ACTIVITY FLOW -->
+  <div class="section">
+    <div class="section-title">Agent Activity Tracking Flow</div>
+    <div class="diagram-box">
+      <div class="mermaid">
+sequenceDiagram
+    participant UI as Browser UI
+    participant API as /api/agent-activity
+    participant Store as agentActivityStore
+    participant Poll as /api/agent-status
+    participant Panel as AgentActivityPanel
+
+    UI->>API: POST {action: "start", agentName, task}
+    API->>Store: startAgent(agentName, task)
+    Store-->>API: {status: "working"}
+    API-->>UI: {success: true}
+
+    Note over Panel: Polls every 500–800ms
+
+    Panel->>Poll: GET /api/agent-status
+    Poll->>Store: getAllActivities()
+    Store-->>Poll: [{agentName, status: "working", ...}]
+    Poll-->>Panel: {activities, log, timestamp}
+    Panel-->>Panel: Render spinning indicator
+
+    UI->>API: POST {action: "complete", result}
+    API->>Store: completeAgent(agentName, result)
+    Store-->>API: {status: "completed"}
+
+    Panel->>Poll: GET /api/agent-status
+    Poll->>Store: getAllActivities()
+    Store-->>Poll: [{status: "completed", ...}]
+    Poll-->>Panel: {activities}
+    Panel-->>Panel: Render checkmark ✓
+      </div>
+    </div>
+  </div>
+
+  <!-- TECH STACK -->
+  <div class="section">
+    <div class="section-title">Technology Stack</div>
+    <div class="stack-grid">
+      <div class="stack-card">
+        <h3>Frontend</h3>
+        <ul>
+          <li>Next.js 15.5.3 (App Router)</li>
+          <li>React 19.1 + TypeScript</li>
+          <li>Tailwind CSS v4</li>
+          <li>Lucide React Icons</li>
+          <li>Quest DS-Icons (CDN)</li>
+          <li>Custom useState / polling hooks</li>
+        </ul>
+      </div>
+      <div class="stack-card">
+        <h3>Backend / API</h3>
+        <ul>
+          <li>Next.js API Routes (Node.js runtime)</li>
+          <li>Google Gemini 1.5 Flash / Pro</li>
+          <li>pdf-parse (PDF text extraction)</li>
+          <li>FormData API (binary upload)</li>
+          <li>agentActivityStore (Map-based)</li>
+          <li>localTables (localStorage persistence)</li>
+        </ul>
+      </div>
+      <div class="stack-card">
+        <h3>NLP / AI Pipeline</h3>
+        <ul>
+          <li>Medical Dictionary (ICD-10 / SNOMED)</li>
+          <li>Concept extraction (nlpParser.ts)</li>
+          <li>Rule-based SQL generation</li>
+          <li>Gemini SQL refinement</li>
+          <li>Feasibility assessment</li>
+          <li>Query insights generation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- API ENDPOINTS -->
+  <div class="section">
+    <div class="section-title">API Endpoints</div>
+    <table class="api-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Endpoint</th>
+          <th>Purpose</th>
+          <th>Key Services</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="endpoint">/api/intake/connectivity</td>
+          <td>Verify Gemini API connectivity before upload</td>
+          <td>intakeGeminiService</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint">/api/intake/parse</td>
+          <td>Parse uploaded clinical files into structured records</td>
+          <td>intakeGeminiService, intakeFallbackParser, pdf-parse</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint">/api/translate</td>
+          <td>Translate NL question to SQL, run feasibility check</td>
+          <td>nlpParser, sqlGenerator, geminiService</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint">/api/detect-ambiguities</td>
+          <td>Detect ambiguous terms in clinical queries</td>
+          <td>geminiService, medicalDictionaryService</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint">/api/query-insights</td>
+          <td>Generate AI insights, relaxation advice, near-matches</td>
+          <td>geminiService, localQueryRunner</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="endpoint">/api/agent-activity</td>
+          <td>Update agent status (start / complete / error)</td>
+          <td>agentActivityStore</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="endpoint">/api/agent-status</td>
+          <td>Poll current agent activity for real-time display</td>
+          <td>agentActivityStore</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- AGENT ARCHITECTURE -->
+  <div class="section">
+    <div class="section-title">AI Agent Architecture</div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <span class="tag tag-orch">Orchestrator</span>
+        <h3>AgentOrchestrator</h3>
+        <p>Coordinates all agents in sequence. Manages pipeline state, routes data between agents, and aggregates results for the UI response.</p>
+      </div>
+      <div class="agent-card">
+        <span class="tag tag-data">Data Agent</span>
+        <h3>DataIngestionAgent</h3>
+        <p>Handles file parsing and clinical data extraction. Supports PDF, image, and text formats. Falls back to rule-based parsing when Gemini is unavailable.</p>
+      </div>
+      <div class="agent-card">
+        <span class="tag tag-nlp">NLP Agent</span>
+        <h3>NLPAgent</h3>
+        <p>Extracts medical concepts from natural language queries. Maps terms to ICD-10/SNOMED codes using the medical dictionary service and Gemini disambiguation.</p>
+      </div>
+      <div class="agent-card">
+        <span class="tag tag-query">Query Agent</span>
+        <h3>QueryExecutionAgent</h3>
+        <p>Generates and refines SQL queries. Executes against the in-memory patient dataset. Runs feasibility checks and produces structured result sets with near-miss analysis.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div>EligibilityAI &mdash; Clinical Trial Patient Screening Platform</div>
+    <div>Quest Diagnostics Hackathon &bull; July 2026 &bull; Confidential / Demo Only</div>
+  </div>
+
+</div>
+
+<button class="print-btn" onclick="window.print()">⬇ Save as PDF</button>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#e3f2fd',
+      primaryBorderColor: '#1e88e5',
+      primaryTextColor: '#0a1628',
+      lineColor: '#005b8e',
+      secondaryColor: '#e8f5e9',
+      tertiaryColor: '#fff8e1'
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+    sequence: { actorMargin: 60, messageMargin: 40 }
+  });
+</script>
+
+</body>
+</html>

@@ -9,13 +9,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "border-[var(--brand-700)] bg-[var(--brand-600)] text-white hover:bg-[var(--brand-700)] focus-visible:ring-[var(--brand-500)]",
+          "border-[#35792a] bg-[#35792a] text-white hover:bg-[#175b23] focus-visible:ring-[#95c58e] shadow-[var(--ds-elevation-1)] hover:shadow-[var(--ds-elevation-2)]",
         secondary:
-          "border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-primary)] hover:bg-[var(--surface-2)] focus-visible:ring-[var(--brand-500)]",
+          "border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-primary)] hover:bg-[var(--surface-2)] focus-visible:ring-[#35792a] shadow-[var(--ds-elevation-1)]",
         ghost:
-          "border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-2)] focus-visible:ring-[var(--brand-500)]",
+          "border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-2)] focus-visible:ring-[#35792a]",
         danger:
-          "border-rose-700 bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-500",
+          "border-[#ef4444] bg-[#ef4444] text-white hover:bg-[#dc2626] focus-visible:ring-[#ef4444]",
       },
       size: {
         sm: "h-8 px-3 text-xs",

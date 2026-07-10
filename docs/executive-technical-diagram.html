@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>EligibilityAI – Technical Architecture</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#0d1b2e;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.slide{width:100%;max-width:1060px;background:#f4f7fb;border-radius:16px;overflow:hidden;box-shadow:0 12px 60px rgba(0,0,0,.5)}
+
+/* HEADER */
+.hdr{background:linear-gradient(120deg,#004f7c 0%,#0077b6 55%,#0096c7 100%);padding:28px 44px 26px;display:flex;justify-content:space-between;align-items:center}
+.hdr h1{font-size:28px;font-weight:800;color:#fff}
+.hdr h1 span{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.15em;color:rgba(255,255,255,.65);display:block;margin-bottom:5px}
+.hdr-right{display:flex;gap:28px;align-items:center}
+.badge{background:rgba(255,255,255,.15);backdrop-filter:blur(4px);border-radius:8px;padding:10px 18px;text-align:center}
+.badge p{font-size:12px;font-weight:700;color:#fff}
+.badge span{font-size:10px;color:rgba(255,255,255,.6);display:block;margin-top:2px}
+.subtitle{font-size:13px;color:rgba(255,255,255,.75);margin-top:4px;font-weight:400}
+
+/* BODY */
+.body{padding:28px 44px 24px}
+
+/* SECTION LABEL */
+.sl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#005b8e;margin-bottom:14px;padding-left:10px;border-left:3px solid #005b8e}
+
+/* ARCHITECTURE DIAGRAM */
+.arch{display:grid;grid-template-columns:200px 1fr 200px;gap:0;align-items:center;margin-bottom:26px;background:#fff;border-radius:12px;border:1px solid #dde5ef;padding:24px;box-shadow:0 1px 8px rgba(0,0,0,.05)}
+
+/* Left column – inputs */
+.inputs{display:flex;flex-direction:column;gap:10px}
+.input-box{background:#e8f5e9;border:1.5px solid #a5d6a7;border-radius:8px;padding:10px 12px;font-size:11.5px;font-weight:600;color:#1b5e20;display:flex;align-items:center;gap:8px}
+.input-box .ico{font-size:18px}
+
+/* Center – pipeline */
+.pipeline{display:flex;flex-direction:column;gap:0;align-items:stretch;padding:0 20px}
+.pipe-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.pipe-box{flex:1;border-radius:8px;padding:10px 14px;text-align:center;border:1.5px solid}
+.pipe-box h4{font-size:12px;font-weight:700;margin-bottom:3px}
+.pipe-box p{font-size:10.5px;line-height:1.5;color:inherit;opacity:.85}
+.pb-blue{background:#e3f2fd;border-color:#90caf9;color:#0d47a1}
+.pb-purple{background:#f3e5f5;border-color:#ce93d8;color:#4a148c}
+.pb-teal{background:#e0f7fa;border-color:#80deea;color:#006064}
+.pb-amber{background:#fff8e1;border-color:#ffe082;color:#6d4c00}
+.pb-green{background:#e8f5e9;border-color:#a5d6a7;color:#1b5e20}
+.pb-red{background:#fce8e6;border-color:#ef9a9a;color:#b71c1c}
+
+.pipe-arrow{text-align:center;font-size:16px;color:#005b8e;margin:2px 0;line-height:1}
+.pipe-split{display:flex;gap:8px;flex:1}
+.pipe-split .pipe-box{flex:1}
+.or-badge{font-size:9px;font-weight:700;background:#e0e7ef;color:#555;border-radius:4px;padding:1px 5px;align-self:center;flex-shrink:0}
+
+/* Right column – outputs */
+.outputs{display:flex;flex-direction:column;gap:10px}
+.output-box{background:#e3f2fd;border:1.5px solid #90caf9;border-radius:8px;padding:10px 12px;font-size:11.5px;font-weight:600;color:#0d47a1;display:flex;align-items:center;gap:8px}
+.output-box .ico{font-size:18px}
+
+/* connector arrows between columns */
+.col-arrow{font-size:22px;color:#005b8e;text-align:center;font-weight:300;display:flex;flex-direction:column;justify-content:center;gap:20px;padding:0 4px;opacity:.6}
+
+/* DATA LAYER */
+.data-layer{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:26px}
+.dl-card{background:#fff;border-radius:10px;border:1.5px solid #dde5ef;padding:16px;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.dl-card h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#005b8e;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.dl-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0f4f8;font-size:11.5px}
+.dl-row:last-child{border-bottom:none}
+.dl-row .key{color:#555}
+.dl-row .val{font-weight:600;color:#0a1628;font-size:10.5px;text-align:right;max-width:140px}
+
+/* GEMINI AI PANEL */
+.ai-panel{background:#fff;border-radius:10px;border:1.5px solid #ce93d8;padding:16px 20px;box-shadow:0 1px 6px rgba(0,0,0,.04);margin-bottom:26px;display:flex;gap:28px;align-items:center}
+.ai-icon{font-size:36px;flex-shrink:0}
+.ai-content h3{font-size:13px;font-weight:700;color:#4a148c;margin-bottom:6px}
+.ai-content p{font-size:12px;color:#555;line-height:1.6;margin-bottom:8px}
+.ai-caps{display:flex;flex-wrap:wrap;gap:6px}
+.ai-cap{font-size:10.5px;font-weight:600;background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;border-radius:100px;padding:3px 10px}
+
+/* BOTTOM STATS */
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:#fff;border-radius:10px;border:1.5px solid #dde5ef;padding:14px 12px;text-align:center;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.stat-card .num{font-size:24px;font-weight:800;color:#005b8e;line-height:1}
+.stat-card .lbl{font-size:10px;color:#777;margin-top:4px;line-height:1.4}
+
+/* FOOTER */
+.ftr{background:#0a1628;padding:14px 44px;display:flex;justify-content:space-between;align-items:center}
+.ftr p{font-size:10.5px;color:rgba(255,255,255,.45)}
+
+.print-btn{position:fixed;bottom:20px;right:20px;background:#005b8e;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(0,91,142,.4)}
+@media print{body{background:#fff;padding:0;display:block}.slide{border-radius:0;box-shadow:none}.print-btn{display:none}}
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div>
+      <h1><span>Technical Architecture</span>EligibilityAI</h1>
+      <p class="subtitle">AI-Powered Clinical Trial Patient Screening Platform</p>
+    </div>
+    <div class="hdr-right">
+      <div class="badge"><p>Quest Diagnostics</p><span>Hackathon 2026</span></div>
+      <div class="badge"><p>Next.js + Gemini AI</p><span>Production-Ready Stack</span></div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- ARCHITECTURE -->
+    <div class="sl">System Architecture — End-to-End Data Flow</div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #dde5ef;padding:24px 20px;box-shadow:0 1px 8px rgba(0,0,0,.05);margin-bottom:26px">
+
+      <!-- ROW 1: INPUTS → PIPELINE STEPS → OUTPUT -->
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#777;margin-bottom:14px;text-align:center">AI Processing Pipeline</div>
+      <div style="display:flex;align-items:center;gap:6px;overflow-x:auto">
+
+        <!-- Input -->
+        <div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;min-width:100px">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#777;text-align:center;margin-bottom:2px">Sources</div>
+          <div class="input-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">📄</span>PDF / Images</div>
+          <div class="input-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">📝</span>Text / Notes</div>
+          <div class="input-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">🗣️</span>NL Query</div>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Step 1 -->
+        <div class="pipe-box pb-blue" style="flex:1;min-width:100px;text-align:center">
+          <div style="font-size:20px;margin-bottom:5px">📥</div>
+          <h4>Intake</h4>
+          <p>File parse &amp; format detect</p>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Step 2 -->
+        <div style="flex:1;min-width:110px;display:flex;flex-direction:column;gap:5px">
+          <div class="pipe-box pb-purple" style="text-align:center;padding:8px 10px">
+            <div style="font-size:16px;margin-bottom:3px">🤖</div>
+            <h4>Gemini AI</h4>
+            <p>LLM Extraction</p>
+          </div>
+          <div style="text-align:center;font-size:9px;font-weight:700;color:#888">OR</div>
+          <div class="pipe-box pb-teal" style="text-align:center;padding:8px 10px">
+            <div style="font-size:16px;margin-bottom:3px">📋</div>
+            <h4>Rule Engine</h4>
+            <p>ICD-10 Fallback</p>
+          </div>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Step 3 -->
+        <div class="pipe-box pb-amber" style="flex:1;min-width:100px;text-align:center">
+          <div style="font-size:20px;margin-bottom:5px">🗄️</div>
+          <h4>Data Store</h4>
+          <p>Demographics &amp; History</p>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Step 4 -->
+        <div class="pipe-box pb-teal" style="flex:1;min-width:100px;text-align:center">
+          <div style="font-size:20px;margin-bottom:5px">🔤</div>
+          <h4>NLP Parser</h4>
+          <p>Concepts &amp; Filters</p>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Step 5 -->
+        <div class="pipe-box pb-purple" style="flex:1;min-width:100px;text-align:center">
+          <div style="font-size:20px;margin-bottom:5px">⚙️</div>
+          <h4>SQL Generator</h4>
+          <p>Build &amp; Refine</p>
+        </div>
+
+        <div style="font-size:20px;color:#005b8e;flex-shrink:0;opacity:.6">→</div>
+
+        <!-- Outputs -->
+        <div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;min-width:110px">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#777;text-align:center;margin-bottom:2px">Outputs</div>
+          <div class="output-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">🎯</span>Matched Patients</div>
+          <div class="output-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">💡</span>AI Insights</div>
+          <div class="output-box" style="font-size:10.5px;padding:7px 10px"><span class="ico" style="font-size:14px">🔁</span>Near-Miss List</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- DATA + API LAYER -->
+    <div class="sl">Key Components</div>
+    <div class="data-layer">
+
+      <div class="dl-card">
+        <h3>⚡ API Layer (7 Endpoints)</h3>
+        <div class="dl-row"><span class="key">File Ingestion</span><span class="val">POST /intake/parse</span></div>
+        <div class="dl-row"><span class="key">NL → SQL</span><span class="val">POST /translate</span></div>
+        <div class="dl-row"><span class="key">AI Insights</span><span class="val">POST /query-insights</span></div>
+        <div class="dl-row"><span class="key">Agent Status</span><span class="val">GET /agent-status</span></div>
+        <div class="dl-row"><span class="key">Ambiguity Check</span><span class="val">POST /detect-ambiguities</span></div>
+        <div class="dl-row"><span class="key">Connectivity</span><span class="val">GET /intake/connectivity</span></div>
+      </div>
+
+      <div class="dl-card">
+        <h3>🤖 AI Agent System</h3>
+        <div class="dl-row"><span class="key">Orchestrator</span><span class="val">Pipeline coordination</span></div>
+        <div class="dl-row"><span class="key">DataIngestionAgent</span><span class="val">File parse + classify</span></div>
+        <div class="dl-row"><span class="key">NLPAgent</span><span class="val">Concept extraction</span></div>
+        <div class="dl-row"><span class="key">QueryExecutionAgent</span><span class="val">SQL + matching</span></div>
+        <div class="dl-row"><span class="key">Activity Store</span><span class="val">Real-time status</span></div>
+        <div class="dl-row"><span class="key">Polling Interval</span><span class="val">500–800 ms</span></div>
+      </div>
+
+      <div class="dl-card">
+        <h3>🏗️ Infrastructure</h3>
+        <div class="dl-row"><span class="key">Framework</span><span class="val">Next.js 15.5 App Router</span></div>
+        <div class="dl-row"><span class="key">Runtime</span><span class="val">Node.js Edge Runtime</span></div>
+        <div class="dl-row"><span class="key">AI Model</span><span class="val">Gemini 1.5 Flash/Pro</span></div>
+        <div class="dl-row"><span class="key">Styling</span><span class="val">Tailwind CSS v4</span></div>
+        <div class="dl-row"><span class="key">Deployment</span><span class="val">Docker / Cloud Run</span></div>
+        <div class="dl-row"><span class="key">Type Safety</span><span class="val">TypeScript strict</span></div>
+      </div>
+
+    </div>
+
+    <!-- GEMINI PANEL -->
+    <div class="sl">Gemini AI Capabilities</div>
+    <div class="ai-panel">
+      <div class="ai-icon">✨</div>
+      <div class="ai-content">
+        <h3>Google Gemini 1.5 Flash — Core AI Engine</h3>
+        <p>Powers the intelligent extraction, query refinement, and insight generation throughout the platform. Graceful fallback to rule-based processing when API is unavailable.</p>
+        <div class="ai-caps">
+          <span class="ai-cap">Clinical Record Extraction</span>
+          <span class="ai-cap">NL → SQL Translation</span>
+          <span class="ai-cap">SQL Refinement &amp; Validation</span>
+          <span class="ai-cap">Feasibility Assessment</span>
+          <span class="ai-cap">Near-Miss Analysis</span>
+          <span class="ai-cap">Ambiguity Detection</span>
+          <span class="ai-cap">ICD-10 / SNOMED Mapping</span>
+          <span class="ai-cap">Enrollment Optimization Advice</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATS ROW -->
+    <div class="stats-row">
+      <div class="stat-card"><div class="num">7</div><div class="lbl">REST API Endpoints</div></div>
+      <div class="stat-card"><div class="num">4</div><div class="lbl">AI Agents in Pipeline</div></div>
+      <div class="stat-card"><div class="num">2</div><div class="lbl">Workflow Tabs</div></div>
+      <div class="stat-card"><div class="num">500ms</div><div class="lbl">Real-time Agent Polling</div></div>
+      <div class="stat-card"><div class="num">100%</div><div class="lbl">TypeScript Coverage</div></div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="ftr">
+    <p>EligibilityAI Technical Architecture &mdash; Quest Diagnostics Hackathon 2026</p>
+    <p>Confidential &bull; Demo Only &bull; July 2026</p>
+  </div>
+
+</div>
+<button class="print-btn" onclick="window.print()">⬇ Save as PDF</button>
+</body>
+</html>

@@ -1,7 +1,7 @@
 "use client";
 
 import { FileUp, FlaskConical, Loader2, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AgentActivityPanel } from "@/components/agent-activity-panel";
 import { Button } from "@/components/ui/button";
@@ -17,13 +17,6 @@ export function IngestionWorkspace() {
   const [isParsing, setIsParsing] = useState(false);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
-  const [isCheckingConnectivity, setIsCheckingConnectivity] = useState(false);
-  const [connectivity, setConnectivity] = useState<{
-    ok: boolean;
-    status: string;
-    detail: string;
-    checkedAt?: number;
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parseDebug, setParseDebug] = useState<{
     sourceFileName: string;
@@ -52,45 +45,6 @@ export function IngestionWorkspace() {
     setMounted(true);
     setTables(readTables());
   }, []);
-
-  const onCheckConnectivity = useCallback(async () => {
-    setIsCheckingConnectivity(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/intake/connectivity", {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        status?: string;
-        detail?: string;
-        checkedAt?: number;
-      };
-
-      setConnectivity({
-        ok: Boolean(payload.ok),
-        status: payload.status ?? "unknown",
-        detail: payload.detail ?? "No details returned.",
-        checkedAt: payload.checkedAt,
-      });
-    } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "Connectivity check failed.";
-      setConnectivity({
-        ok: false,
-        status: "request-failed",
-        detail,
-      });
-    } finally {
-      setIsCheckingConnectivity(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void onCheckConnectivity();
-  }, [onCheckConnectivity]);
 
   const formatDateTime = (timestamp?: number) => {
     if (!timestamp || !mounted) {
@@ -551,42 +505,12 @@ export function IngestionWorkspace() {
       </div>
 
       <div className="mt-2 flex gap-2">
-        <Button variant="secondary" onClick={onCheckConnectivity} disabled={isCheckingConnectivity || isParsing} size="sm">
-          {isCheckingConnectivity ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
-          {isCheckingConnectivity ? "Checking..." : "Check Connectivity"}
-        </Button>
         <Button variant="ghost" onClick={onClearTables} size="sm">
           <Trash2 size={14} /> Clear Tables
         </Button>
       </div>
-      <div className={`rounded-[var(--ds-radius-sm)] border px-2 py-1.5 ${isCheckingConnectivity ? "border-[var(--border)] bg-[var(--surface-1)]" : connectivity?.ok ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50"}`}>
-        <div className="flex items-center justify-between gap-2">
-          <p className={`ds-caption font-medium ${isCheckingConnectivity ? "text-[var(--text-primary)]" : connectivity?.ok ? "text-emerald-800" : "text-rose-800"}`}>
-            Connectivity: {isCheckingConnectivity ? "Checking..." : connectivity?.ok ? "✓ Passed" : "✗ Failed"}
-            {!isCheckingConnectivity && connectivity?.status ? ` (${connectivity.status})` : ""}
-          </p>
-          <p className={`ds-caption text-[0.75rem] ${isCheckingConnectivity ? "text-[var(--text-secondary)]" : connectivity?.ok ? "text-emerald-700" : "text-rose-700"}`}>
-            {isCheckingConnectivity
-              ? "Testing..."
-              : connectivity?.detail ?? "Unavailable"}
-          </p>
-        </div>
-      </div>
 
-      <Card className="fade-in-up">
-        <h4 className="ds-body font-semibold text-[var(--text-primary)]">Professional Use Disclaimer</h4>
-        <ul className="mt-2 space-y-1">
-          <li className="ds-caption text-[var(--text-secondary)]">
-            Parsed content may include OCR/model inference errors and should be verified before operational use.
-          </li>
-          <li className="ds-caption text-[var(--text-secondary)]">
-            This MVP stores records in browser-local tables for demo speed, not for production PHI storage.
-          </li>
-          <li className="ds-caption text-[var(--text-secondary)]">
-            Apply enterprise controls for encryption, retention, access, and audit trails in real deployments.
-          </li>
-        </ul>
-      </Card>
+
     </>
   );
 }

@@ -4,6 +4,7 @@ import { Activity, Sparkle } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
+import { ConnectivityStatus } from "@/components/connectivity-status";
 import { IngestionWorkspace } from "@/components/ingestion-workspace";
 import { NlpWorkspace } from "@/components/nlp-workspace";
 
@@ -15,26 +16,34 @@ export default function Home() {
   return (
     <main className="dashboard-glow min-h-screen px-4 py-6 sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="fade-in-up flex flex-col gap-4 rounded-[var(--ds-radius-lg)] border border-[var(--border)] bg-[var(--surface-0)] p-6 shadow-[var(--ds-elevation-3)] md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="ds-caption mb-2 flex items-center gap-2 font-semibold tracking-[0.14em] text-[var(--brand-700)] uppercase">
-              <Activity size={14} /> Clinical Trial Platform
-            </p>
-            <h1 className="ds-display-lg text-[var(--text-primary)] sm:text-[34px]">
-              EligibilityAI
-            </h1>
-            <p className="ds-body mt-2 max-w-2xl text-[var(--text-secondary)]">
-              Enroll Smarter, Screen Faster. Transform clinical data into eligible trial subjects with AI-powered eligibility analysis.
-            </p>
+        <header className="fade-in-up flex flex-col gap-4 rounded-[var(--ds-radius-lg)] border border-[var(--border)] bg-gradient-to-r from-[#175b23] to-[#35792a] p-8 shadow-[var(--ds-elevation-3)]">
+          {/* Header Top Section */}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="ds-caption mb-2 flex items-center gap-2 font-semibold tracking-[0.14em] text-[rgba(255,255,255,0.8)] uppercase">
+                <Activity size={14} /> Clinical Trial Platform
+              </p>
+              <h1 className="ds-display-lg text-white sm:text-[36px]">
+                EligibilityAI
+              </h1>
+              <p className="ds-body mt-2 max-w-2xl text-[rgba(255,255,255,0.85)]">
+                Enroll Smarter, Screen Faster. Transform clinical data into eligible trial subjects with AI-powered eligibility analysis.
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-4">
+              <Image
+                src="/Quest-Diagnostics-RGB-gradient.jpg"
+                alt="Quest Diagnostics"
+                width={160}
+                height={54}
+                className="object-contain"
+                priority
+              />
+              <ConnectivityStatus />
+            </div>
           </div>
-          <Image
-            src="/Quest-Diagnostics-RGB-gradient.jpg"
-            alt="Quest Diagnostics"
-            width={160}
-            height={54}
-            className="object-contain"
-            priority
-          />
+
+
         </header>
 
         <section className="fade-in-up rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-2 shadow-[var(--ds-elevation-1)]">
@@ -66,13 +75,20 @@ export default function Home() {
 
         {activeTab === "ingestion" ? <IngestionWorkspace /> : <NlpWorkspace />}
 
-
-        <footer className="pb-4 text-center text-xs text-[var(--text-muted)]">
-          <p className="inline-flex items-center gap-1">
-            <Sparkle size={12} />
-            Demonstration platform for clinical data ingestion and NLP-assisted SQL authoring.
-          </p>
-        </footer>
+        {/* Clinical Use Disclaimer Section */}
+        <section className="rounded-[var(--ds-radius-lg)] border border-[var(--border)] bg-gradient-to-r from-[#175b23] to-[#35792a] p-6 shadow-[var(--ds-elevation-2)]">
+          <div className="flex items-start gap-3">
+            <span className="text-xl font-bold text-white">✓</span>
+            <div>
+              <h3 className="font-bold text-white">Clinical Use Disclaimer and Query Feasibility</h3>
+              <p className="mt-2 text-sm text-[rgba(255,255,255,0.85)]">
+                This application is designed to assist healthcare professionals in identifying potentially eligible patients for clinical trials based on medical data analysis. 
+                All queries and results are subject to clinical validation and review by qualified healthcare providers. 
+                EligibilityAI provides analytical support only and does not replace clinical judgment or professional medical evaluation.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );

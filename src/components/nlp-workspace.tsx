@@ -655,75 +655,6 @@ export function NlpWorkspace() {
             <SqlOutput sql={sql} />
           </div>
         </details>
-
-        {currentResult?.feasibilityCheck && (
-          <div
-            className={`rounded-[var(--ds-radius-sm)] border px-3 py-3 ${
-              currentResult.feasibilityCheck.feasible
-                ? "border-amber-200 bg-amber-50"
-                : "border-orange-200 bg-orange-50"
-            }`}
-          >
-            <p className={`ds-caption font-semibold ${
-              currentResult.feasibilityCheck.feasible
-                ? "text-amber-900"
-                : "text-orange-900"
-            }`}>
-              Query Feasibility: {currentResult.feasibilityCheck.feasible ? "✓ Viable" : "⚠ Limited Results Expected"}
-            </p>
-            <p className={`ds-caption mt-1 ${
-              currentResult.feasibilityCheck.feasible
-                ? "text-amber-800"
-                : "text-orange-800"
-            }`}>
-              Expected matches: {currentResult.feasibilityCheck.expectedRowsMin}–{currentResult.feasibilityCheck.expectedRowsMax} rows
-            </p>
-            {currentResult.feasibilityCheck.warnings.length > 0 && (
-              <div className="mt-1.5">
-                <p className={`ds-caption font-medium ${
-                  currentResult.feasibilityCheck.feasible
-                    ? "text-amber-800"
-                    : "text-orange-800"
-                }`}>
-                  Warnings:
-                </p>
-                <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
-                  currentResult.feasibilityCheck.feasible
-                    ? "text-amber-800"
-                    : "text-orange-800"
-                }`}>
-                  {currentResult.feasibilityCheck.warnings.slice(0, 2).map((warning, idx) => (
-                    <li key={idx} className="ds-caption">
-                      {warning}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {currentResult.feasibilityCheck.suggestions.length > 0 && (
-              <div className="mt-1.5">
-                <p className={`ds-caption font-medium ${
-                  currentResult.feasibilityCheck.feasible
-                    ? "text-amber-800"
-                    : "text-orange-800"
-                }`}>
-                  Suggestions:
-                </p>
-                <ul className={`mt-0.5 list-inside list-disc space-y-0.5 ${
-                  currentResult.feasibilityCheck.feasible
-                    ? "text-amber-800"
-                    : "text-orange-800"
-                }`}>
-                  {currentResult.feasibilityCheck.suggestions.slice(0, 2).map((suggestion, idx) => (
-                    <li key={idx} className="ds-caption">
-                      {suggestion}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
       <section className="fade-in-up" style={{ animationDelay: "290ms" }} ref={pipelineSectionRef}>
@@ -753,24 +684,6 @@ export function NlpWorkspace() {
               Run a query translation to view processing status.
             </p>
           )}
-        </div>
-
-        <div className="rounded-[var(--ds-radius-sm)] border-2 border-amber-200 bg-amber-50 p-4 shadow-[var(--ds-elevation-1)] mt-4">
-          <h3 className="ds-body font-semibold text-amber-900 mb-2">⚠️ Clinical Use Disclaimer</h3>
-          <ul className="space-y-1.5">
-            <li className="ds-caption text-amber-800">
-              • This tool generates <strong>draft SQL only</strong> — does not replace clinical judgment or data governance
-            </li>
-            <li className="ds-caption text-amber-800">
-              • Always <strong>validate queries</strong> against approved schema and privacy policies before execution
-            </li>
-            <li className="ds-caption text-amber-800">
-              • For regulated use: implement <strong>human review, audit logging, and compliance controls</strong>
-            </li>
-            <li className="ds-caption text-amber-800">
-              • Demo purpose only — not for production PHI or clinical decision-making
-            </li>
-          </ul>
         </div>
       </section>
     </>
