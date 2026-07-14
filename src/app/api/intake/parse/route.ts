@@ -7,6 +7,12 @@ import {
   parseTextWithGemini,
   transcribeFileWithGemini,
 } from "@/services/intakeGeminiService";
+import {
+  normalizeAge,
+  normalizeDateOfBirth,
+  normalizeLocationLabel,
+  normalizeZipCode,
+} from "@/services/demographics";
 import { IntakeParseResponse } from "@/types/intake";
 
 export const runtime = "nodejs";
@@ -266,11 +272,21 @@ function normalizeResponse(response: IntakeParseResponse): IntakeParseResponse {
 
   return {
     ...response,
-    demographics: response.demographics.map((item, index) => ({
-      ...item,
-      id: item.id || `demo-${now}-${index}`,
-      extractedAt: item.extractedAt || now,
-    })),
+    demographics: response.demographics.map((item, index) => {
+      const dateOfBirth = normalizeDateOfBirth(item.dateOfBirth);
+      return {
+        ...item,
+        id: item.id || `demo-${now}-${index}`,
+        age: normalizeAge(item.age, dateOfBirth, now),
+        dateOfBirth,
+        city: normalizeLocationLabel(item.city),
+        state: normalizeLocationLabel(item.state),
+        zipcode: normalizeZipCode(item.zipcode),
+        ethnicity: normalizeLocationLabel(item.ethnicity),
+        race: normalizeLocationLabel(item.race),
+        extractedAt: item.extractedAt || now,
+      };
+    }),
     medicalHistory: response.medicalHistory.map((item, index) => ({
       ...item,
       id: item.id || `med-${now}-${index}`,
@@ -390,6 +406,9 @@ function normalizeGeminiResponse(input: {
       const patientId =
         pickString(record, ["patientId", "patient_id", "mrn", "id"]) ??
         `PT-${now}-${index}`;
+      const dateOfBirth = normalizeDateOfBirth(
+        pickString(record, ["dateOfBirth", "dob", "birthDate", "birth_date"])
+      );
 
       return {
         id: pickString(record, ["id"]) ?? `demo-${now}-${index}`,
@@ -400,13 +419,38 @@ function normalizeGeminiResponse(input: {
         fullName:
           pickString(record, ["fullName", "full_name", "name", "patientName", "patient_name"]) ??
           "Unknown Patient",
-        age: pickNumber(record, ["age"]),
+        age: normalizeAge(pickNumber(record, ["age"]), dateOfBirth, now),
         gender: normalizeGender(pickString(record, ["gender", "sex"])),
-        dateOfBirth: pickString(record, ["dateOfBirth", "dob", "birthDate", "birth_date"]),
+        dateOfBirth,
+        city: normalizeLocationLabel(
+          pickString(record, ["city", "town", "municipality"])
+        ),
+        state: normalizeLocationLabel(
+          pickString(record, ["state", "province", "region"])
+        ),
+        zipcode: normalizeZipCode(
+          pickString(record, ["zipcode", "zipCode", "zip", "postalCode", "postal_code"])
+        ),
+        ethnicity: normalizeLocationLabel(
+          pickString(record, ["ethnicity", "ethnicGroup", "ethnic_group"])
+        ),
+        race: normalizeLocationLabel(
+          pickString(record, ["race", "racialGroup", "racial_group"])
+        ),
         extractedAt: pickNumber(record, ["extractedAt", "extracted_at", "timestamp"]) ?? now,
       };
     })
-    .filter((row) => row.fullName !== "Unknown Patient" || row.gender || row.age || row.dateOfBirth);
+    .filter((row) =>
+      row.fullName !== "Unknown Patient" ||
+      row.gender ||
+      row.age ||
+      row.dateOfBirth ||
+      row.city ||
+      row.state ||
+      row.zipcode ||
+      row.ethnicity ||
+      row.race
+    );
 
   const medicalHistory = toArray(input.response.medicalHistory)
     .map((row, index) => {
@@ -453,8 +497,7 @@ function normalizeGeminiResponse(input: {
         onsetDate: pickString(record, ["onsetDate", "onset_date", "diagnosedDate", "diagnosed_date"]),
         extractedAt: pickNumber(record, ["extractedAt", "extracted_at", "timestamp"]) ?? now,
       };
-    })
-    .filter((row) => row.condition !== "Unspecified condition" || row.code !== "N/A");
+    });
 
   return {
     ...input.response,

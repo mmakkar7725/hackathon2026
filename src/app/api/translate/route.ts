@@ -40,12 +40,84 @@ function sanitizeReadOnlySql(sql: string) {
   const padded = ` ${lowered} `;
   const hasForbiddenKeyword = forbidden.some((keyword) => padded.includes(keyword));
   const startsReadOnly = lowered.trimStart().startsWith("select") || lowered.trimStart().startsWith("with");
+  const hasFromClause = /\bfrom\b/i.test(sql);
+  const hasSelectClause = /\bselect\b/i.test(sql);
+  const hasDanglingJoin = /\bjoin\s+[A-Za-z0-9_.]*_\s*$/i.test(sql.trim());
+  const hasJoinWithoutCondition = /\bjoin\b/i.test(sql) && !/\b(on|using)\b/i.test(sql);
+  const endsWithDanglingToken = /[.,(]$/.test(sql.trim()) || /\b(and|or|where|from|join|on|select)\s*$/i.test(sql.trim());
 
-  if (hasForbiddenKeyword || !startsReadOnly) {
+  if (
+    hasForbiddenKeyword ||
+    !startsReadOnly ||
+    !hasSelectClause ||
+    !hasFromClause ||
+    hasDanglingJoin ||
+    hasJoinWithoutCondition ||
+    endsWithDanglingToken
+  ) {
     return null;
   }
 
   return sql;
+}
+
+function hasRequiredFilterSemantics(sql: string, result: QueryResult) {
+  const lowered = sql.toLowerCase();
+  const { filters } = result;
+
+  if (filters.gender && !/\bgender\b/.test(lowered)) {
+    return false;
+  }
+
+  if (filters.ethnicity) {
+    const ethnicity = String(filters.ethnicity).toLowerCase();
+    if (!/\bethnicity\b/.test(lowered) || !lowered.includes(ethnicity)) {
+      return false;
+    }
+  }
+
+  if (filters.race) {
+    const race = String(filters.race).toLowerCase();
+    if (!/\brace\b/.test(lowered) || !lowered.includes(race)) {
+      return false;
+    }
+  }
+
+  if (filters.ageMin !== undefined && !/\bage\b/.test(lowered)) {
+    return false;
+  }
+
+  if (filters.ageMax !== undefined && !/\bage\b/.test(lowered)) {
+    return false;
+  }
+
+  if (filters.state) {
+    const state = String(filters.state).toLowerCase();
+    if (!/\bstate\b/.test(lowered) || !lowered.includes(state)) {
+      return false;
+    }
+  }
+
+  if (filters.city) {
+    const city = String(filters.city).toLowerCase();
+    if (!/\bcity\b/.test(lowered) || !lowered.includes(city)) {
+      return false;
+    }
+  }
+
+  if (filters.zipcode && filters.zipcodeRadiusMiles !== undefined) {
+    if (!/zipcode_radius_miles\s*\(/i.test(sql) || !lowered.includes(String(filters.zipcode).toLowerCase())) {
+      return false;
+    }
+  }
+
+  if (filters.zipcode && filters.zipcodeRadiusMiles === undefined) {
+    if (!/\bzipcode\b/.test(lowered) || !lowered.includes(String(filters.zipcode).toLowerCase())) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function summarizeBaseResult(baseResult: QueryResult) {
@@ -169,6 +241,18 @@ export async function POST(request: NextRequest) {
         ],
         statusLabel: "Gemini Safety Fallback",
         statusDetail: "Gemini response was blocked by read-only SQL safety checks.",
+      });
+    }
+
+    if (!hasRequiredFilterSemantics(safeSql, baseResult)) {
+      return NextResponse.json({
+        ...baseResult,
+        explanationSteps: [
+          ...baseResult.explanationSteps,
+          "Gemini SQL did not preserve extracted filter semantics, returned deterministic SQL.",
+        ],
+        statusLabel: "Gemini Semantic Fallback",
+        statusDetail: "Gemini response omitted or altered required filters from the parsed prompt.",
       });
     }
 

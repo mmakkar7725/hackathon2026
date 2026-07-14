@@ -7,17 +7,23 @@ import { AgentActivityPanel } from "@/components/agent-activity-panel";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { appendToTables, clearTables, readTables } from "@/services/localTables";
+import { useIngestionStore } from "@/store/ingestionStore";
 import { DemographicsRecord, IntakeParseResponse, MedicalHistoryRecord } from "@/types/intake";
-
-type FileParseStatus = "pending" | "processing" | "parsed" | "failed";
 
 export function IngestionWorkspace() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [fileProgress, setFileProgress] = useState<Array<{ name: string; status: FileParseStatus; detail?: string }>>([]);
-  const [isParsing, setIsParsing] = useState(false);
-  const [statusLabel, setStatusLabel] = useState<string | null>(null);
-  const [statusDetail, setStatusDetail] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    fileProgress,
+    isParsing,
+    statusLabel,
+    statusDetail,
+    ingestionError: error,
+    setFileProgress,
+    setIsParsing,
+    setStatusLabel,
+    setStatusDetail,
+    setIngestionError: setError,
+  } = useIngestionStore();
   const [parseDebug, setParseDebug] = useState<{
     sourceFileName: string;
     parserMode: IntakeParseResponse["parserMode"];
@@ -156,7 +162,7 @@ export function IngestionWorkspace() {
         }
 
         const safePayload = payload as IntakeParseResponse;
-        appendToTables({
+        const writeStats = appendToTables({
           demographics: safePayload.demographics,
           medicalHistory: safePayload.medicalHistory,
         });
@@ -194,7 +200,11 @@ export function IngestionWorkspace() {
               ? {
                   ...entry,
                   status: "parsed",
-                  detail: `${safePayload.demographics.length} demographics, ${safePayload.medicalHistory.length} history rows`,
+                  detail:
+                    `${writeStats.acceptedDemographics} demographics saved, ${writeStats.acceptedMedicalHistory} history rows saved` +
+                    (writeStats.rejectedDemographics > 0 || writeStats.rejectedMedicalHistory > 0
+                      ? ` (${writeStats.rejectedDemographics + writeStats.rejectedMedicalHistory} duplicates rejected)`
+                      : ""),
                 }
               : entry
           )
@@ -245,8 +255,8 @@ export function IngestionWorkspace() {
           ? cause.message
           : "Could not parse this file. Try another format or retry with Gemini key configured.";
       setError(detail);
-      // Update server agent status
-      await updateAgentStatus('error', { error: detail });
+        // Update server agent status
+        await updateAgentStatus('error', { error: detail });
     } finally {
       setIsParsing(false);
     }
@@ -368,6 +378,12 @@ export function IngestionWorkspace() {
                     <p className="ds-body font-medium text-[var(--text-primary)]">{row.fullName}</p>
                     <p className="ds-caption text-[var(--text-secondary)]">
                       Patient ID: {row.patientId} · Age: {row.age ?? "-"} · Gender: {row.gender ?? "-"}
+                    </p>
+                    <p className="ds-caption text-[var(--text-secondary)]">
+                      DOB: {row.dateOfBirth ?? "-"} · City: {row.city ?? "-"} · State: {row.state ?? "-"} · ZIP: {row.zipcode ?? "-"}
+                    </p>
+                    <p className="ds-caption text-[var(--text-secondary)]">
+                      Ethnicity: {row.ethnicity ?? "-"} · Race: {row.race ?? "-"}
                     </p>
                     <p className="ds-caption text-[var(--text-secondary)]">
                       Uploaded: {formatDateTime(row.extractedAt)}

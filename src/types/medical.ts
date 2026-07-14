@@ -28,6 +28,12 @@ export interface QueryFilters {
   ageMin?: number;
   ageMax?: number;
   gender?: "male" | "female";
+  ethnicity?: string;
+  race?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
+  zipcodeRadiusMiles?: number;
   diagnosedWithinYears?: number;
   diagnosedWithinMonths?: number;
 }
@@ -93,4 +99,21 @@ export interface QueryResult {
   statusLabel?: string;
   statusDetail?: string;
   feasibilityCheck?: QueryFeasibilityResult;
+}
+
+export interface QueryInsightsResponse {
+  overview: string;
+  relaxationAdvice: Array<{
+    droppedFilter: string;
+    additionalPatients: number;
+    rationale: string;
+  }>;
+  patientJoinChances: Array<{
+    patientId: string;
+    fullName: string;
+    chancePercent: number;
+    reason: string;
+  }>;
+  source?: "gemini" | "fallback";
+  model?: string;
 }

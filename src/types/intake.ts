@@ -6,6 +6,11 @@ export interface DemographicsRecord {
   age?: number;
   gender?: "male" | "female" | "other";
   dateOfBirth?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
+  ethnicity?: string;
+  race?: string;
   extractedAt: number;
 }
 

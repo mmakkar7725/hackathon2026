@@ -1,7 +1,7 @@
 "use client";
 
 import { BrainCircuit, CheckCircle2, Circle, Database, Loader2 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 
 import { AgentActivityPanel } from "@/components/agent-activity-panel";
@@ -13,24 +13,7 @@ import { data as samplePrompts } from "@/data/samplePrompts";
 import { useSpeechInput } from "@/hooks/useSpeechInput";
 import { runQueryAgainstStep1Data, Step1QueryRunResult } from "@/services/localQueryRunner";
 import { useQueryStore } from "@/store/queryStore";
-import type { AmbiguityDetection, QueryResult } from "@/types/medical";
-
-interface QueryInsightsResponse {
-  overview: string;
-  relaxationAdvice: Array<{
-    droppedFilter: string;
-    additionalPatients: number;
-    rationale: string;
-  }>;
-  patientJoinChances: Array<{
-    patientId: string;
-    fullName: string;
-    chancePercent: number;
-    reason: string;
-  }>;
-  source?: "gemini" | "fallback";
-  model?: string;
-}
+import type { AmbiguityDetection, QueryInsightsResponse, QueryResult } from "@/types/medical";
 
 type TimelineKey = "entities" | "filters" | "sql" | "patients";
 type TimelineStatus = "pending" | "active" | "done";
@@ -130,21 +113,10 @@ function buildLocalInsights(output: Step1QueryRunResult): QueryInsightsResponse 
 
 export function NlpWorkspace() {
   const pipelineSectionRef = useRef<HTMLElement | null>(null);
-  const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
-  const [pipelineStep, setPipelineStep] = useState<"idle" | "translating" | "executing" | "insights" | "done">("idle");
-  const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+  const abortControllerRef = useRef<AbortController>(new AbortController());
+
   const [useGeminiAssist, setUseGeminiAssist] = useState(true);
   const [ambiguities, setAmbiguities] = useState<AmbiguityDetection[] | null>(null);
-  const [timelineState, setTimelineState] = useState<TimelineState>(createDefaultTimelineState());
-  const [timelineFacts, setTimelineFacts] = useState({
-    entitiesFound: 0,
-    filtersInferred: 0,
-    sqlBuilt: false,
-    patientsMatched: 0,
-  });
-  const [step1Result, setStep1Result] = useState<Step1QueryRunResult | null>(null);
-  const [queryInsights, setQueryInsights] = useState<QueryInsightsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const {
     prompt,
@@ -152,7 +124,45 @@ export function NlpWorkspace() {
     history,
     setPrompt,
     setResult,
+    pipeline,
+    updatePipeline,
+    mergeTimelineState,
+    mergeTimelineFacts,
   } = useQueryStore();
+
+  const {
+    isExecutingPipeline,
+    isGeneratingInsights,
+    pipelineStep,
+    timelineState,
+    timelineFacts,
+    step1Result,
+    queryInsights,
+    nlpError: error,
+  } = pipeline;
+
+  const setIsExecutingPipeline = (val: boolean) => updatePipeline({ isExecutingPipeline: val });
+  const setPipelineStep = (val: typeof pipelineStep) => updatePipeline({ pipelineStep: val });
+  const setIsGeneratingInsights = (val: boolean) => updatePipeline({ isGeneratingInsights: val });
+  const setStep1Result = (val: Step1QueryRunResult | null) => updatePipeline({ step1Result: val });
+  const setQueryInsights = (val: QueryInsightsResponse | null) => updatePipeline({ queryInsights: val });
+  const setError = (val: string | null) => updatePipeline({ nlpError: val });
+  const setTimelineState = (valOrUpdater: TimelineState | ((prev: TimelineState) => TimelineState)) => {
+    if (typeof valOrUpdater === "function") {
+      const current = useQueryStore.getState().pipeline.timelineState as TimelineState;
+      updatePipeline({ timelineState: valOrUpdater(current) });
+    } else {
+      updatePipeline({ timelineState: valOrUpdater });
+    }
+  };
+  const setTimelineFacts = (valOrUpdater: typeof timelineFacts | ((prev: typeof timelineFacts) => typeof timelineFacts)) => {
+    if (typeof valOrUpdater === "function") {
+      const current = useQueryStore.getState().pipeline.timelineFacts;
+      updatePipeline({ timelineFacts: valOrUpdater(current) });
+    } else {
+      updatePipeline({ timelineFacts: valOrUpdater });
+    }
+  };
 
   const downloadMatchedPatientsCsv = useCallback(() => {
     if (!step1Result || step1Result.rows.length === 0) {
@@ -163,7 +173,11 @@ export function NlpWorkspace() {
       "Patient ID",
       "Full Name",
       "Age",
+      "DOB",
       "Gender",
+      "City",
+      "State",
+      "ZIP",
       "Matched Conditions",
       "Matched Codes",
       "Last Uploaded",
@@ -173,7 +187,11 @@ export function NlpWorkspace() {
       row.patientId,
       row.fullName,
       row.age ?? "",
+      row.dateOfBirth ?? "",
       row.gender ?? "",
+      row.city ?? "",
+      row.state ?? "",
+      row.zipcode ?? "",
       row.matchedConditions.join(", "),
       row.matchedCodes.join(", "),
       formatTimestamp(row.latestUploadAt),
@@ -202,12 +220,14 @@ export function NlpWorkspace() {
 
     const rowsHtml = step1Result.rows
       .map((row) => {
-        const demographics = `Age: ${row.age ?? "-"} | Gender: ${row.gender ?? "-"}`;
+        const demographics = `Age: ${row.age ?? "-"} | DOB: ${row.dateOfBirth ?? "-"} | Gender: ${row.gender ?? "-"}`;
+        const location = `City: ${row.city ?? "-"} | State: ${row.state ?? "-"} | ZIP: ${row.zipcode ?? "-"}`;
         return `
           <tr>
             <td>${escapeHtml(row.fullName)}</td>
             <td>${escapeHtml(row.patientId)}</td>
             <td>${escapeHtml(demographics)}</td>
+            <td>${escapeHtml(location)}</td>
             <td>${escapeHtml(row.matchedConditions.join(", ") || "-")}</td>
             <td>${escapeHtml(row.matchedCodes.join(", ") || "-")}</td>
             <td>${escapeHtml(formatTimestamp(row.latestUploadAt))}</td>
@@ -248,6 +268,7 @@ export function NlpWorkspace() {
                 <th>Patient</th>
                 <th>Patient ID</th>
                 <th>Demographics</th>
+                <th>Location</th>
                 <th>Matched Conditions</th>
                 <th>Matched Codes</th>
                 <th>Last Uploaded</th>
@@ -271,6 +292,10 @@ export function NlpWorkspace() {
     }
 
     try {
+      // Abort any previous ongoing queries
+      abortControllerRef.current.abort();
+      abortControllerRef.current = new AbortController();
+
       const pipelineEl = pipelineSectionRef.current;
       if (pipelineEl) {
         const targetTop = Math.max(0, pipelineEl.getBoundingClientRect().top + window.scrollY - 72);
@@ -327,6 +352,7 @@ export function NlpWorkspace() {
             datasetStats,
             ambiguities,
           }),
+          signal: abortControllerRef.current.signal,
         });
 
         if (!response.ok) {
@@ -384,6 +410,14 @@ export function NlpWorkspace() {
           patients: "active",
         }));
       } catch (caughtError) {
+        // Silently ignore AbortError (user switched tabs or started new query)
+        if (caughtError instanceof Error && caughtError.name === "AbortError") {
+          setIsExecutingPipeline(false);
+          setTimelineState(createDefaultTimelineState());
+          setPipelineStep("idle");
+          return;
+        }
+
         const message = caughtError instanceof Error ? caughtError.message : "Translation failed.";
         setError(`Translation step failed: ${message}`);
         setIsExecutingPipeline(false);
@@ -417,17 +451,24 @@ export function NlpWorkspace() {
             relaxationStats: output.relaxationStats,
             nearMisses: output.nearMisses,
           }),
+          signal: abortControllerRef.current.signal,
         });
 
         if (insightsResponse.ok) {
           const insights = (await insightsResponse.json()) as QueryInsightsResponse;
           setQueryInsights(insights);
         } else {
-          setQueryInsights(buildLocalInsights(output));
+          const localInsights = buildLocalInsights(output);
+          setQueryInsights(localInsights);
           setError("Gemini insights unavailable. Showing deterministic fallback insights.");
         }
-      } catch {
-        setQueryInsights(buildLocalInsights(output));
+      } catch (insightsError) {
+        // Silently ignore AbortError (user switched tabs or started new query)
+        if (insightsError instanceof Error && insightsError.name === "AbortError") {
+          return;
+        }
+        const localInsights = buildLocalInsights(output);
+        setQueryInsights(localInsights);
         setError("Gemini insights unavailable. Showing deterministic fallback insights.");
       } finally {
         setIsGeneratingInsights(false);
@@ -435,6 +476,14 @@ export function NlpWorkspace() {
         setPipelineStep("done");
       }
     } catch (executionError) {
+      // Silently ignore AbortError (user switched tabs or started new query)
+      if (executionError instanceof Error && executionError.name === "AbortError") {
+        setIsExecutingPipeline(false);
+        setTimelineState(createDefaultTimelineState());
+        setPipelineStep("idle");
+        return;
+      }
+
       const message =
         executionError instanceof Error
           ? executionError.message
@@ -506,6 +555,43 @@ export function NlpWorkspace() {
             onAmbiguitiesChange={setAmbiguities}
           />
           {error ? <p className="ds-body text-rose-700">{error}</p> : null}
+
+          {isExecutingPipeline && (
+            <div className="rounded-[var(--ds-radius-sm)] border border-[var(--brand-400)] bg-[var(--surface-1)] p-3">
+              <p className="ds-caption font-semibold mb-3 text-[var(--brand-700)]">
+                Query Pipeline Progress
+              </p>
+              <div className="space-y-2">
+                {compactTimeline.map((step, index) => {
+                  const status = timelineState[step.key];
+                  const isActive = status === "active";
+                  const isDone = status === "done";
+                  const detail = isDone ? step.doneDetail : isActive ? step.activeDetail : step.pendingDetail;
+                  
+                  return (
+                    <div key={step.key} className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0" style={{
+                        backgroundColor: isDone ? 'rgb(16 185 129)' : isActive ? 'rgb(59 130 246)' : 'rgb(107 114 128)',
+                      }}>
+                        {isDone ? (
+                          <CheckCircle2 size={16} className="text-white" />
+                        ) : isActive ? (
+                          <Loader2 size={16} className="text-white animate-spin" />
+                        ) : (
+                          <Circle size={16} className="text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="ds-caption font-medium text-[var(--text-primary)]">{step.label}</p>
+                        <p className="ds-caption text-[0.75rem] text-[var(--text-secondary)]">{detail}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <details className="rounded-[var(--ds-radius-sm)] border border-[var(--border)] bg-[var(--surface-0)] p-2">
             <summary className="ds-caption cursor-pointer font-semibold text-[var(--text-primary)]">Sample Queries</summary>
             <div className="mt-2">
@@ -565,6 +651,7 @@ export function NlpWorkspace() {
                       <tr>
                         <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Patient</th>
                         <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Demographics</th>
+                        <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Location</th>
                         <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Conditions</th>
                         <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Matched Codes</th>
                         <th className="ds-caption border-b border-[var(--border)] px-3 py-2 text-left text-[var(--text-secondary)]">Last Uploaded</th>
@@ -578,7 +665,10 @@ export function NlpWorkspace() {
                             <p className="text-[var(--text-secondary)]">{row.patientId}</p>
                           </td>
                           <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
-                            Age: {row.age ?? "-"} | Gender: {row.gender ?? "-"}
+                            Age: {row.age ?? "-"} | DOB: {row.dateOfBirth ?? "-"} | Gender: {row.gender ?? "-"}
+                          </td>
+                          <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
+                            City: {row.city ?? "-"} | State: {row.state ?? "-"} | ZIP: {row.zipcode ?? "-"}
                           </td>
                           <td className="ds-caption border-b border-[var(--border)] px-3 py-2 text-[var(--text-secondary)]">
                             {row.matchedConditions.length > 0 ? row.matchedConditions.join(", ") : "-"}

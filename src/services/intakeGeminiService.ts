@@ -171,7 +171,7 @@ export async function parseFileWithGemini(input: {
   const prompt = [
     "Extract healthcare data from the provided file.",
     "Return strict JSON only with keys: demographics, medicalHistory.",
-    "demographics: array of records with fields id, sourceFileName, patientId, fullName, age, gender, dateOfBirth, extractedAt.",
+    "demographics: array of records with fields id, sourceFileName, patientId, fullName, age, gender, dateOfBirth, city, state, zipcode, ethnicity, race, extractedAt.",
     "medicalHistory: array of records with fields id, sourceFileName, patientId, condition, codeSystem, code, note, onsetDate, extractedAt.",
     "Use coding systems ICD10 or SNOMED when possible, otherwise UNKNOWN.",
     "Use Unix timestamp number for extractedAt.",
@@ -381,7 +381,7 @@ export async function parseTextWithGemini(input: {
   const prompt = [
     "Convert the following clinical text into strict JSON.",
     "Return strict JSON only with keys: demographics, medicalHistory.",
-    "demographics: array of records with fields id, sourceFileName, patientId, fullName, age, gender, dateOfBirth, extractedAt.",
+     "demographics: array of records with fields id, sourceFileName, patientId, fullName, age, gender, dateOfBirth, city, state, zipcode, ethnicity, race, extractedAt.",
     "medicalHistory: array of records with fields id, sourceFileName, patientId, condition, codeSystem, code, note, onsetDate, extractedAt.",
     "Use coding systems ICD10 or SNOMED when possible, otherwise UNKNOWN.",
     "Use Unix timestamp number for extractedAt.",

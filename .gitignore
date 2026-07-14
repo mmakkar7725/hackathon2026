@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated sample PDFs (large binary files, not needed in repo)
+/sample-data/pdf-examples/

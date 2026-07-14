@@ -1,4 +1,10 @@
 import { medicalDictionary } from "@/data/medicalDictionary";
+import {
+  normalizeAge,
+  normalizeDateOfBirth,
+  normalizeLocationLabel,
+  normalizeZipCode,
+} from "@/services/demographics";
 import { DemographicsRecord, MedicalHistoryRecord } from "@/types/intake";
 
 function normalizeClinicalText(raw: string) {
@@ -23,6 +29,28 @@ function findFirstMatch(input: string, expressions: RegExp[]) {
 }
 
 function extractPatientName(text: string) {
+  // 1. Try split first / last name fields (both generated PDFs and handwritten summaries)
+  const firstName = findFirstMatch(text, [
+    /patient\s*first\s*name\s*[:#-]\s*([^\n\r]+)/i,
+    /first\s*name\s*[:#-]\s*([^\n\r]+)/i,
+  ])?.trim();
+  const lastName = findFirstMatch(text, [
+    /patient\s*last\s*name\s*[:#-]\s*([^\n\r]+)/i,
+    /last\s*name\s*[:#-]\s*([^\n\r]+)/i,
+    /surname\s*[:#-]\s*([^\n\r]+)/i,
+  ])?.trim();
+  const middleName = findFirstMatch(text, [
+    /patient\s*middle\s*name\s*[:#-]\s*([^\n\r]+)/i,
+    /middle\s*name\s*[:#-]\s*([^\n\r]+)/i,
+  ])?.trim();
+
+  if (firstName && lastName) {
+    return middleName
+      ? `${firstName} ${middleName} ${lastName}`
+      : `${firstName} ${lastName}`;
+  }
+
+  // 2. Try single combined name field
   const candidates = [
     /^\s*name\s*[:#-]\s*([^\n\r]+)/im,
     /^\s*patient\s*name\s*[:#-]\s*([^\n\r]+)/im,
@@ -118,6 +146,67 @@ function extractAge(text: string) {
   ]);
 }
 
+function extractDateOfBirth(text: string) {
+  const captured = findFirstMatch(text, [
+    /dob\s*[:#-]?\s*([^\n\r,;]+)/i,
+    /date of birth\s*[:#-]?\s*([^\n\r,;]+)/i,
+    /birth\s*date\s*[:#-]?\s*([^\n\r,;]+)/i,
+  ]);
+
+  return normalizeDateOfBirth(captured);
+}
+
+function extractZipcode(text: string) {
+  const explicit = findFirstMatch(text, [
+    /zip\s*code\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
+    /zipcode\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
+    /postal\s*code\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
+  ]);
+
+  if (explicit) {
+    return normalizeZipCode(explicit);
+  }
+
+  const fromAddress = text.match(/\b([A-Za-z .'-]{2,80}),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
+  return normalizeZipCode(fromAddress?.[3]);
+}
+
+function extractCityState(text: string) {
+  const city = normalizeLocationLabel(
+    findFirstMatch(text, [/city\s*[:#-]?\s*([^\n\r]+)/i])
+  );
+  const stateRaw = findFirstMatch(text, [/state\s*[:#-]?\s*([^\n\r]+)/i]);
+  const state = normalizeLocationLabel(stateRaw)?.toUpperCase();
+
+  if (city || state) {
+    return { city, state };
+  }
+
+  const addressMatch = text.match(/\b([A-Za-z .'-]{2,80}),\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/);
+  return {
+    city: normalizeLocationLabel(addressMatch?.[1]),
+    state: normalizeLocationLabel(addressMatch?.[2])?.toUpperCase(),
+  };
+}
+
+function extractEthnicity(text: string) {
+  return normalizeLocationLabel(
+    findFirstMatch(text, [
+      /ethnicity\s*[:#-]?\s*([^\n\r]+)/i,
+      /ethnic\s*group\s*[:#-]?\s*([^\n\r]+)/i,
+    ])
+  );
+}
+
+function extractRace(text: string) {
+  return normalizeLocationLabel(
+    findFirstMatch(text, [
+      /race\s*[:#-]?\s*([^\n\r]+)/i,
+      /racial\s*group\s*[:#-]?\s*([^\n\r]+)/i,
+    ])
+  );
+}
+
 function extractGenderRaw(text: string) {
   const explicit = findFirstMatch(text, [/gender\s*[:#-]?\s*([A-Za-z]+)/i, /sex\s*[:#-]?\s*([A-Za-z]+)/i]);
   if (explicit) {
@@ -177,6 +266,38 @@ function extractProblemListConditions(text: string) {
   });
 }
 
+function extractComorbidities(input: {
+  text: string;
+  sourceFileName: string;
+  patientId: string;
+  now: number;
+}) {
+  const entries: MedicalHistoryRecord[] = [];
+  const comorbiditiesMatch = input.text.match(
+    /(?:comorbidities|co-morbidities|comorbid\s+conditions)\s*[:#-]?\s*([^\n\r]+)/i
+  );
+  if (!comorbiditiesMatch?.[1]) return entries;
+
+  const items = comorbiditiesMatch[1]
+    .split(/,/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3 && !/^(none|n\/a|nil)$/i.test(s));
+
+  items.forEach((condition, idx) => {
+    entries.push({
+      id: `med-comorbid-${input.now}-${idx}`,
+      sourceFileName: input.sourceFileName,
+      patientId: input.patientId,
+      condition,
+      codeSystem: "UNKNOWN",
+      code: "N/A",
+      note: "Extracted from Comorbidities field.",
+      extractedAt: input.now,
+    });
+  });
+  return entries;
+}
+
 function extractDiagnosedWithConditions(input: {
   text: string;
   sourceFileName: string;
@@ -234,7 +355,12 @@ export function parseTextToRecords(input: {
 
   const ageRaw = extractAge(text);
   const genderRaw = extractGenderRaw(text);
-  const dob = findFirstMatch(text, [/dob\s*[:#-]?\s*([0-9/\-]+)/i, /date of birth\s*[:#-]?\s*([0-9/\-]+)/i]);
+  const dob = extractDateOfBirth(text);
+  const zipcode = extractZipcode(text);
+  const { city, state } = extractCityState(text);
+  const ethnicity = extractEthnicity(text);
+  const race = extractRace(text);
+  const age = normalizeAge(ageRaw ? Number(ageRaw) : undefined, dob, now);
 
   const demographics: DemographicsRecord[] = [
     {
@@ -242,14 +368,26 @@ export function parseTextToRecords(input: {
       sourceFileName: input.sourceFileName,
       patientId,
       fullName,
-      age: ageRaw ? Number(ageRaw) : undefined,
+      age,
       gender: normalizeGender(genderRaw),
       dateOfBirth: dob,
+      city,
+      state,
+      zipcode,
+      ethnicity,
+      race,
       extractedAt: now,
     },
   ];
 
   const icdFromText = extractDiagnosisFromIcdLines({
+    text,
+    sourceFileName: input.sourceFileName,
+    patientId,
+    now,
+  });
+
+  const comorbiditiesMatches = extractComorbidities({
     text,
     sourceFileName: input.sourceFileName,
     patientId,
@@ -288,7 +426,7 @@ export function parseTextToRecords(input: {
   });
 
   const uniqueByCode = new Map<string, MedicalHistoryRecord>();
-  for (const record of [...icdFromText, ...dictionaryMatches, ...problemListMatches, ...narrativeDiagnoses]) {
+  for (const record of [...icdFromText, ...comorbiditiesMatches, ...dictionaryMatches, ...problemListMatches, ...narrativeDiagnoses]) {
     const key =
       record.codeSystem === "UNKNOWN" && record.code === "N/A"
         ? `${record.codeSystem}:${record.code}:${record.condition.toLowerCase()}`

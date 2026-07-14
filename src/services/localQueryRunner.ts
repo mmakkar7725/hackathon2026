@@ -6,6 +6,12 @@ interface Step1QueryRow {
   fullName: string;
   age?: number;
   gender?: string;
+  ethnicity?: string;
+  race?: string;
+  dateOfBirth?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
   matchedConditions: string[];
   matchedCodes: string[];
   latestUploadAt?: number;
@@ -16,6 +22,12 @@ interface Step1NearMissPatient {
   fullName: string;
   age?: number;
   gender?: string;
+  ethnicity?: string;
+  race?: string;
+  dateOfBirth?: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
   chanceToJoinPercent: number;
   missingCriteria: string[];
   matchedConditions: string[];
@@ -39,6 +51,39 @@ interface Step1QueryRunResult {
 
 function normalize(input: string) {
   return input.toLowerCase().trim();
+}
+
+function normalizeZip(input?: string) {
+  if (!input) {
+    return undefined;
+  }
+
+  const match = input.trim().match(/^(\d{5})(?:-\d{4})?$/);
+  return match?.[1];
+}
+
+// Zip radius fallback for local-only execution when geospatial ZIP centroids are unavailable.
+function estimateZipDistanceMiles(fromZip?: string, toZip?: string) {
+  const from = normalizeZip(fromZip);
+  const to = normalizeZip(toZip);
+
+  if (!from || !to) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (from === to) {
+    return 0;
+  }
+
+  if (from.slice(0, 3) === to.slice(0, 3)) {
+    return 25;
+  }
+
+  if (from.slice(0, 2) === to.slice(0, 2)) {
+    return 80;
+  }
+
+  return Number.POSITIVE_INFINITY;
 }
 
 function daysFromYears(years: number) {
@@ -129,6 +174,27 @@ export function runQueryAgainstStep1Data(query: QueryResult): Step1QueryRunResul
   if (query.filters.gender !== undefined) {
     activeChecks.push({ key: "gender", label: `Gender = ${query.filters.gender}` });
   }
+  if (query.filters.ethnicity !== undefined) {
+    activeChecks.push({ key: "ethnicity", label: `Ethnicity = ${query.filters.ethnicity}` });
+  }
+  if (query.filters.race !== undefined) {
+    activeChecks.push({ key: "race", label: `Race = ${query.filters.race}` });
+  }
+  if (query.filters.city !== undefined) {
+    activeChecks.push({ key: "city", label: `City = ${query.filters.city}` });
+  }
+  if (query.filters.state !== undefined) {
+    activeChecks.push({ key: "state", label: `State = ${query.filters.state}` });
+  }
+  if (query.filters.zipcode !== undefined && query.filters.zipcodeRadiusMiles === undefined) {
+    activeChecks.push({ key: "zipcode", label: `ZIP = ${query.filters.zipcode}` });
+  }
+  if (query.filters.zipcode !== undefined && query.filters.zipcodeRadiusMiles !== undefined) {
+    activeChecks.push({
+      key: "zipcodeRadius",
+      label: `Within ${query.filters.zipcodeRadiusMiles} miles of ZIP ${query.filters.zipcode}`,
+    });
+  }
   if (hasTimeFilter) {
     const timeLabel =
       query.filters.diagnosedWithinYears !== undefined
@@ -178,6 +244,26 @@ export function runQueryAgainstStep1Data(query: QueryResult): Step1QueryRunResul
       gender:
         query.filters.gender === undefined ||
         (patient.gender !== undefined && normalize(patient.gender) === query.filters.gender),
+      ethnicity:
+        query.filters.ethnicity === undefined ||
+        (patient.ethnicity !== undefined &&
+          normalize(patient.ethnicity).includes(normalize(query.filters.ethnicity))),
+      race:
+        query.filters.race === undefined ||
+        (patient.race !== undefined && normalize(patient.race).includes(normalize(query.filters.race))),
+      city:
+        query.filters.city === undefined ||
+        (patient.city !== undefined && normalize(patient.city) === normalize(query.filters.city)),
+      state:
+        query.filters.state === undefined ||
+        (patient.state !== undefined && normalize(patient.state) === normalize(query.filters.state)),
+      zipcode:
+        query.filters.zipcode === undefined ||
+        normalizeZip(patient.zipcode) === normalizeZip(query.filters.zipcode),
+      zipcodeRadius:
+        query.filters.zipcode === undefined || query.filters.zipcodeRadiusMiles === undefined
+          ? true
+          : estimateZipDistanceMiles(patient.zipcode, query.filters.zipcode) <= query.filters.zipcodeRadiusMiles,
       time: !hasTimeFilter || timeFilteredHistory.length > 0,
       concept: !hasConceptFilter || conceptFilteredHistory.length > 0,
     };
@@ -205,6 +291,12 @@ export function runQueryAgainstStep1Data(query: QueryResult): Step1QueryRunResul
         fullName: patient.fullName,
         age: patient.age,
         gender: patient.gender,
+        ethnicity: patient.ethnicity,
+        race: patient.race,
+        dateOfBirth: patient.dateOfBirth,
+        city: patient.city,
+        state: patient.state,
+        zipcode: patient.zipcode,
         chanceToJoinPercent,
         missingCriteria,
         matchedConditions: Array.from(
@@ -226,6 +318,12 @@ export function runQueryAgainstStep1Data(query: QueryResult): Step1QueryRunResul
       fullName: patient.fullName,
       age: patient.age,
       gender: patient.gender,
+      ethnicity: patient.ethnicity,
+      race: patient.race,
+      dateOfBirth: patient.dateOfBirth,
+      city: patient.city,
+      state: patient.state,
+      zipcode: patient.zipcode,
       matchedConditions: Array.from(new Set(filteredHistory.map((row) => row.condition))),
       matchedCodes: Array.from(new Set(filteredHistory.map((row) => `${row.codeSystem}:${row.code}`))),
       latestUploadAt,

@@ -198,7 +198,12 @@ export function buildDatabaseSchemaContext(datasetStats: {
    - full_name: Patient's full name
    - age: Patient's age in years (integer, 0-130)
    - gender: 'male', 'female', or 'other'
+  - ethnicity: Ethnicity descriptor (e.g., 'Hispanic or Latino')
+  - race: Race descriptor (e.g., 'White', 'Asian')
    - date_of_birth: ISO date string (YYYY-MM-DD)
+  - city: City name (string)
+  - state: State or region (string)
+  - zipcode: ZIP/postal code (typically 5-digit US ZIP)
    - extracted_at: Timestamp (milliseconds since epoch)
 
 2. **medical_history** (${datasetStats.medicalHistoryCount} records from ${datasetStats.uniquePatientsCount} patients)
@@ -223,11 +228,13 @@ export function buildDatabaseSchemaContext(datasetStats: {
 3. Dates are ISO strings (YYYY-MM-DD format) - use string comparison or DATE() function
 4. Age is an integer - use comparison operators directly
 5. Gender values: 'male' (case-insensitive match)
-6. Diagnoses/Conditions: Match against condition name OR code
-7. Always add WHERE filters to limit result set
-8. Prefer DISTINCT to avoid duplicate patient records
-9. Use aggregate functions (COUNT, MAX, MIN) only when grouping is intentional
-10. Test for NULL values explicitly when filtering`;
+6. Location filters can use city, state, and zipcode in demographics table
+7. For zipcode radius requests, use helper form: zipcode_radius_miles(d.zipcode, '12345') <= radius
+8. Diagnoses/Conditions: Match against condition name OR code
+9. Always add WHERE filters to limit result set
+10. Prefer DISTINCT to avoid duplicate patient records
+11. Use aggregate functions (COUNT, MAX, MIN) only when grouping is intentional
+12. Test for NULL values explicitly when filtering`;
 }
 
 export async function assessQueryFeasibilityWithGemini(input: {
@@ -415,15 +422,35 @@ export async function refineSqlWithGemini(input: {
     };
   }
 
-  const instruction = `Generate complete clinical SQL query.
+  const schemaBlock =
+    input.schemaContext ??
+    "demographics(patient_id, full_name, age, gender, date_of_birth, city, state, zipcode), medical_history(patient_id, condition, code_system, code, onset_date)";
+
+  const instruction = `You are refining a deterministic healthcare SQL query.
 Return ONLY valid JSON: {"sql":"SELECT...","explanation":"...","confidenceScore":0.85}
 
-Schema: demographics(patient_id,full_name,age,gender), medical_history(patient_id,condition,code,onset_date)
+Schema context:
+${schemaBlock}
 
-Query: ${input.prompt}
-Baseline SQL: ${input.deterministicSql}
+Original user query:
+${input.prompt}
 
-Generate complete SELECT FROM WHERE ORDER BY SQL now:`;
+Extracted concept summary:
+${input.conceptSummary}
+
+Extracted filter summary:
+${input.filterSummary}
+
+Baseline SQL (authoritative constraints):
+${input.deterministicSql}
+
+Hard requirements:
+1) Preserve all baseline WHERE constraints unless they are syntactically invalid.
+2) Do NOT drop demographic/location predicates (age, gender, city, state, zipcode).
+3) You may improve aliases/joins/readability, but keep semantic intent identical.
+4) Produce read-only SQL only (SELECT or WITH ... SELECT).
+
+Generate complete SELECT FROM WHERE ORDER BY SQL now.`;
 
 
   let response: Response;

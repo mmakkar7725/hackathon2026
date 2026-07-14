@@ -44,6 +44,36 @@ export function generateSqlFromParsedQuery(parsed: ParseResult) {
     whereClauses.push(`gender = '${parsed.filters.gender}'`);
   }
 
+  if (parsed.filters.ethnicity) {
+    whereClauses.push(
+      `LOWER(ethnicity) LIKE LOWER('%${parsed.filters.ethnicity.replace(/'/g, "''")}%')`
+    );
+  }
+
+  if (parsed.filters.race) {
+    whereClauses.push(
+      `LOWER(race) LIKE LOWER('%${parsed.filters.race.replace(/'/g, "''")}%')`
+    );
+  }
+
+  if (parsed.filters.city) {
+    whereClauses.push(`LOWER(city) = LOWER('${parsed.filters.city.replace(/'/g, "''")}')`);
+  }
+
+  if (parsed.filters.state) {
+    whereClauses.push(`LOWER(state) = LOWER('${parsed.filters.state.replace(/'/g, "''")}')`);
+  }
+
+  if (parsed.filters.zipcode && !parsed.filters.zipcodeRadiusMiles) {
+    whereClauses.push(`zipcode = '${parsed.filters.zipcode.replace(/'/g, "''")}'`);
+  }
+
+  if (parsed.filters.zipcode && parsed.filters.zipcodeRadiusMiles) {
+    whereClauses.push(
+      `zipcode_radius_miles(zipcode, '${parsed.filters.zipcode.replace(/'/g, "''")}') <= ${parsed.filters.zipcodeRadiusMiles}`
+    );
+  }
+
   const temporalClause = buildTemporalClause(parsed);
   if (temporalClause) {
     whereClauses.push(temporalClause);
@@ -54,5 +84,5 @@ export function generateSqlFromParsedQuery(parsed: ParseResult) {
       ? `WHERE\n  ${whereClauses.join("\n  AND ")}`
       : "-- No filters extracted";
 
-  return `SELECT\n  patient_id,\n  full_name,\n  age,\n  gender,\n  diagnosis_code,\n  symptom_code,\n  diagnosis_date\nFROM patients\n${whereBlock}\nORDER BY diagnosis_date DESC;`;
+  return `SELECT\n  patient_id,\n  full_name,\n  age,\n  gender,\n  date_of_birth,\n  city,\n  state,\n  zipcode,\n  diagnosis_code,\n  symptom_code,\n  diagnosis_date\nFROM patients\n${whereBlock}\nORDER BY diagnosis_date DESC;`;
 }
