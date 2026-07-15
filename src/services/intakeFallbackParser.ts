@@ -8,6 +8,133 @@ import {
 } from "@/services/demographics";
 import { DemographicsRecord, MedicalHistoryRecord } from "@/types/intake";
 
+// ============================================================================
+// MULTI-STRATEGY EXTRACTION HELPERS
+// ============================================================================
+
+/**
+ * Levenshtein distance fuzzy matcher for handling label variations
+ * Used to match slightly misspelled or OCR-corrupted field labels
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = Array(b.length + 1)
+    .fill(null)
+    .map(() => Array(a.length + 1).fill(0));
+
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,
+        matrix[j - 1][i] + 1,
+        matrix[j - 1][i - 1] + indicator
+      );
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Fuzzy match a label against known variations (e.g., "Zipo" → "Zip")
+ * Returns the matched value if similarity > threshold
+ */
+function fuzzyMatchLabel(
+  text: string,
+  targetLabel: string,
+  threshold: number = 2
+): string | undefined {
+  // Find all lines containing words close to targetLabel
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const words = line.split(/[\s:,#\-]+/);
+    for (const word of words) {
+      const distance = levenshteinDistance(word.toLowerCase(), targetLabel.toLowerCase());
+      if (distance <= threshold && distance > 0) {
+        // Found a fuzzy match, extract the value after this word
+        const regex = new RegExp(`\\b${word}\\s*[:#-]?\\s*([^\\n\\r,;]+)`, "i");
+        const match = text.match(regex);
+        if (match?.[1]) {
+          return match[1].trim();
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Gemini fallback for extracting demographics when regex/fuzzy fails
+ * Used for complex/ambiguous text that needs semantic understanding
+ */
+async function geminiExtractDemographicField(
+  text: string,
+  fieldName: string,
+  description: string
+): Promise<string | undefined> {
+  try {
+    const response = await fetch("/api/gemini-extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        fieldName,
+        description,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`Gemini extraction failed for ${fieldName}`);
+      return undefined;
+    }
+
+    const data = await response.json();
+    return data.value || undefined;
+  } catch (error) {
+    console.warn(`Gemini fallback error for ${fieldName}:`, error);
+    return undefined;
+  }
+}
+
+/**
+ * Multi-strategy extraction: Regex → Fuzzy Match → Gemini Fallback
+ */
+async function extractWithFallback(
+  text: string,
+  regexPatterns: RegExp[],
+  fuzzyLabel: string,
+  fieldName: string,
+  fieldDescription: string
+): Promise<string | undefined> {
+  // Strategy 1: Try exact regex patterns (fastest, free)
+  const regexResult = findFirstMatch(text, regexPatterns);
+  if (regexResult) {
+    return regexResult;
+  }
+
+  // Strategy 2: Try fuzzy matching on labels (handles OCR/handwriting variations)
+  const fuzzyResult = fuzzyMatchLabel(text, fuzzyLabel, 2);
+  if (fuzzyResult) {
+    return fuzzyResult;
+  }
+
+  // Strategy 3: Fall back to Gemini for semantic understanding (slowest, costs tokens)
+  // Only use this if regex and fuzzy matching both fail
+  const geminiResult = await geminiExtractDemographicField(
+    text,
+    fieldName,
+    fieldDescription
+  );
+  if (geminiResult) {
+    return geminiResult;
+  }
+
+  return undefined;
+}
+
 function normalizeClinicalText(raw: string) {
   return raw
     .replace(/<PARSED TEXT FOR PAGE:[^>]+>/gi, "")
@@ -30,7 +157,7 @@ function findFirstMatch(input: string, expressions: RegExp[]) {
 }
 
 function extractPatientName(text: string) {
-  // 1. Try split first / last name fields (both generated PDFs and handwritten summaries)
+  // Strategy 1: Try split first / last name fields
   const firstName = findFirstMatch(text, [
     /patient\s*first\s*name\s*[:#-]\s*([^\n\r]+)/i,
     /first\s*name\s*[:#-]\s*([^\n\r]+)/i,
@@ -51,7 +178,18 @@ function extractPatientName(text: string) {
       : `${firstName} ${lastName}`;
   }
 
-  // 2. Try single combined name field
+  // Strategy 2: Try fuzzy matching for label variations
+  const fuzzyFirst = fuzzyMatchLabel(text, "first", 2)?.trim();
+  const fuzzyLast = fuzzyMatchLabel(text, "last", 2)?.trim();
+  const fuzzyMiddle = fuzzyMatchLabel(text, "middle", 2)?.trim();
+
+  if (fuzzyFirst && fuzzyLast) {
+    return fuzzyMiddle
+      ? `${fuzzyFirst} ${fuzzyMiddle} ${fuzzyLast}`
+      : `${fuzzyFirst} ${fuzzyLast}`;
+  }
+
+  // Strategy 3: Try single combined name field
   const candidates = [
     /^\s*name\s*[:#-]\s*([^\n\r]+)/im,
     /^\s*patient\s*name\s*[:#-]\s*([^\n\r]+)/im,
@@ -80,6 +218,12 @@ function extractPatientName(text: string) {
 
       return normalized;
     }
+  }
+
+  // Strategy 4: Try fuzzy matching on "name" or "patient" labels
+  const fuzzyName = fuzzyMatchLabel(text, "name", 2)?.trim();
+  if (fuzzyName && /^[A-Za-z][A-Za-z ,.'-]{1,80}$/.test(fuzzyName)) {
+    return fuzzyName.replace(/\s+/g, " ").trim();
   }
 
   return undefined;
@@ -141,24 +285,55 @@ function extractDiagnosisFromIcdLines(input: {
 }
 
 function extractAge(text: string) {
-  return findFirstMatch(text, [
+  // Strategy 1: Try explicit label patterns
+  const explicit = findFirstMatch(text, [
     /age\s*[:#-]?\s*(\d{1,3})/i,
     /\b(\d{1,3})\s*(?:y\/?o|yo|years?\s+old|year\s+old)\b/i,
   ]);
+
+  if (explicit) {
+    return explicit;
+  }
+
+  // Strategy 2: Try fuzzy matching for misspellings like "Agee", "Aeg", etc.
+  const fuzzyResult = fuzzyMatchLabel(text, "age", 2);
+  if (fuzzyResult && /^\d{1,3}$/.test(fuzzyResult)) {
+    return fuzzyResult;
+  }
+
+  return undefined;
 }
 
 function extractDateOfBirth(text: string) {
+  // Strategy 1: Try explicit label patterns
   const captured = findFirstMatch(text, [
     /dob\s*[:#-]?\s*([^\n\r,;]+)/i,
     /date of birth\s*[:#-]?\s*([^\n\r,;]+)/i,
     /birth\s*date\s*[:#-]?\s*([^\n\r,;]+)/i,
   ]);
 
-  return normalizeDateOfBirth(captured);
+  if (captured) {
+    return normalizeDateOfBirth(captured);
+  }
+
+  // Strategy 2: Try fuzzy matching for variations like "DObb", "Birth Dat", etc.
+  const fuzzyResult = fuzzyMatchLabel(text, "dob", 2);
+  if (fuzzyResult) {
+    return normalizeDateOfBirth(fuzzyResult);
+  }
+
+  const fuzzyBirthResult = fuzzyMatchLabel(text, "birth", 2);
+  if (fuzzyBirthResult) {
+    return normalizeDateOfBirth(fuzzyBirthResult);
+  }
+
+  return undefined;
 }
 
 function extractZipcode(text: string) {
+  // Strategy 1: Try explicit regex patterns first
   const explicit = findFirstMatch(text, [
+    /\bzip\s*[:#-]\s*(\d{5}(?:-\d{4})?)/i,
     /zip\s*code\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
     /zipcode\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
     /postal\s*code\s*[:#-]?\s*(\d{5}(?:-\d{4})?)/i,
@@ -168,19 +343,25 @@ function extractZipcode(text: string) {
     return normalizeZipCode(explicit);
   }
 
-  // Try multi-line address: city on one line, state+zip on next
+  // Strategy 2: Try fuzzy matching for variations like "Zipl", "Zipo", etc.
+  const fuzzyResult = fuzzyMatchLabel(text, "zip", 2);
+  if (fuzzyResult && /^\d{5}(?:-\d{4})?$/.test(fuzzyResult)) {
+    return normalizeZipCode(fuzzyResult);
+  }
+
+  // Strategy 3: Try multi-line address: city on one line, state+zip on next
   const multiLine = text.match(/,\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
   if (multiLine) {
     return normalizeZipCode(multiLine[2]);
   }
 
+  // Strategy 4: Try from full address line
   const fromAddress = text.match(/\b([A-Za-z][A-Za-z .'-]{1,80}),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
   return normalizeZipCode(fromAddress?.[3]);
 }
 
 function extractCityState(text: string) {
-  // 1. Try explicit labeled fields first — but enforce word boundary to avoid
-  //    "insurance_status", "status", "statement", etc. false-matching "state"
+  // Strategy 1: Try explicit labeled fields with word boundaries
   const city = normalizeLocationLabel(
     findFirstMatch(text, [
       /^city\s*[:#-]\s*([^\n\r]+)/im,
@@ -189,7 +370,7 @@ function extractCityState(text: string) {
   );
 
   const stateRaw = findFirstMatch(text, [
-    /^state\s*[:#-]\s*([^\n\r]+)/im,         // labeled on its own line
+    /^state\s*[:#-]\s*([^\n\r]+)/im,
     /\bstate\s+of\s+(?:residence\s*[:#-]?\s*)?([A-Za-z]{2,30})/i,
   ]);
   const state = normalizeStateAbbreviation(stateRaw);
@@ -198,8 +379,15 @@ function extractCityState(text: string) {
     return { city, state };
   }
 
-  // 2. Full single-line address: "1415 River Road, Las Vegas, NV 89105"
-  //    City is the last comma-separated segment before the state abbreviation+zip
+  // Strategy 2: Try fuzzy matching for label variations (e.g., "Citi" → "City")
+  const fuzzyCity = normalizeLocationLabel(fuzzyMatchLabel(text, "city", 2));
+  const fuzzyState = normalizeStateAbbreviation(fuzzyMatchLabel(text, "state", 2));
+
+  if (fuzzyCity || fuzzyState) {
+    return { city: fuzzyCity, state: fuzzyState };
+  }
+
+  // Strategy 3: Full single-line address: "1415 River Road, Las Vegas, NV 89105"
   const singleLine = text.match(
     /\b([A-Za-z][A-Za-z .'-]{1,80}),\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/
   );
@@ -210,8 +398,7 @@ function extractCityState(text: string) {
     };
   }
 
-  // 3. Multi-line address: city on one line, "ST  ZIPCODE" on the next
-  //    e.g. "Las Vegas,\nNV 89105"
+  // Strategy 4: Multi-line address: city on one line, "ST  ZIPCODE" on the next
   const multiLine = text.match(
     /([A-Za-z][A-Za-z .'-]{1,40}),?\s*\n\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/
   );
@@ -222,7 +409,7 @@ function extractCityState(text: string) {
     };
   }
 
-  // 4. State abbreviation directly after "Home Address:" or "Address:" label
+  // Strategy 5: State abbreviation directly after "Home Address:" or "Address:" label
   const addressLabel = text.match(
     /(?:home\s+)?address\s*[:#-][^\n]*,\s*([A-Za-z]{2})\s+\d{5}/i
   );
@@ -237,29 +424,64 @@ function extractCityState(text: string) {
 }
 
 function extractEthnicity(text: string) {
-  return normalizeLocationLabel(
+  // Strategy 1: Try explicit patterns
+  const explicit = normalizeLocationLabel(
     findFirstMatch(text, [
       /ethnicity\s*[:#-]?\s*([^\n\r]+)/i,
       /ethnic\s*group\s*[:#-]?\s*([^\n\r]+)/i,
     ])
   );
+
+  if (explicit) {
+    return explicit;
+  }
+
+  // Strategy 2: Try fuzzy matching for variations
+  const fuzzyResult = normalizeLocationLabel(fuzzyMatchLabel(text, "ethnicity", 3));
+  return fuzzyResult || undefined;
 }
 
 function extractRace(text: string) {
-  return normalizeLocationLabel(
+  // Strategy 1: Try explicit patterns
+  const explicit = normalizeLocationLabel(
     findFirstMatch(text, [
       /race\s*[:#-]?\s*([^\n\r]+)/i,
       /racial\s*group\s*[:#-]?\s*([^\n\r]+)/i,
     ])
   );
-}
 
-function extractGenderRaw(text: string) {
-  const explicit = findFirstMatch(text, [/gender\s*[:#-]?\s*([A-Za-z]+)/i, /sex\s*[:#-]?\s*([A-Za-z]+)/i]);
   if (explicit) {
     return explicit;
   }
 
+  // Strategy 2: Try fuzzy matching for variations like "Raace", "Rac", etc.
+  const fuzzyResult = normalizeLocationLabel(fuzzyMatchLabel(text, "race", 2));
+  return fuzzyResult || undefined;
+}
+
+function extractGenderRaw(text: string) {
+  // Strategy 1: Try explicit patterns
+  const explicit = findFirstMatch(text, [
+    /gender\s*[:#-]?\s*([A-Za-z]+)/i,
+    /sex\s*[:#-]?\s*([A-Za-z]+)/i,
+  ]);
+
+  if (explicit) {
+    return explicit;
+  }
+
+  // Strategy 2: Try fuzzy matching for variations
+  const fuzzyGender = fuzzyMatchLabel(text, "gender", 2);
+  if (fuzzyGender) {
+    return fuzzyGender;
+  }
+
+  const fuzzySex = fuzzyMatchLabel(text, "sex", 2);
+  if (fuzzySex) {
+    return fuzzySex;
+  }
+
+  // Strategy 3: Try shorthand format (M/F indicator)
   const shorthand = text.match(/\b\d{1,3}\s*(?:y\/?o|yo|years?\s+old)\s*([WBAH]?[MF])\b/i);
   if (shorthand?.[1]) {
     const value = shorthand[1].toUpperCase();
