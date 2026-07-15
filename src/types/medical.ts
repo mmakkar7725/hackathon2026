@@ -7,17 +7,22 @@ export type MedicalCategory =
 export interface MedicalDictionaryEntry {
   id: string;
   name: string;
-  codingSystem: "ICD10" | "SNOMED";
+  codingSystem: "ICD10" | "SNOMED" | "LOINC";
   code: string;
   category: Exclude<MedicalCategory, "demographic" | "filter">;
   synonyms: string[];
+  labValue?: {
+    unit: string;
+    refMin: number;
+    refMax: number;
+  };
 }
 
 export interface ExtractedMedicalConcept {
   id: string;
   term: string;
   canonicalName: string;
-  codingSystem: "ICD10" | "SNOMED";
+  codingSystem: "ICD10" | "SNOMED" | "LOINC" | "UNKNOWN";
   code: string;
   category: MedicalCategory;
   confidence: number;
@@ -36,6 +41,20 @@ export interface QueryFilters {
   zipcodeRadiusMiles?: number;
   diagnosedWithinYears?: number;
   diagnosedWithinMonths?: number;
+  // Lab value filters
+  labValues?: Map<string, { operator: string; value: number }>;
+  // Direct ICD codes
+  directIcdCodes?: string[];
+  // Exclusions
+  exclusions?: string[];
+  // Selected fields
+  selectedFields?: string[];
+  // Insurance/payer status
+  insuranceStatus?: string[];
+  // Required condition codes (must all be present)
+  requiredConditionCodes?: string[];
+  // Medication exclusions (NOT on these medications)
+  medicationExclusions?: string[];
 }
 
 export interface ParseResult {

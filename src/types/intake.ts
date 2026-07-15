@@ -19,7 +19,7 @@ export interface MedicalHistoryRecord {
   sourceFileName: string;
   patientId: string;
   condition: string;
-  codeSystem: "ICD10" | "SNOMED" | "UNKNOWN";
+  codeSystem: "ICD10" | "SNOMED" | "LOINC" | "UNKNOWN";
   code: string;
   note?: string;
   onsetDate?: string;

@@ -288,11 +288,171 @@ function extractLocationFilters(text: string, filters: QueryFilters, steps: stri
     steps.push(`Detected location filter: state ${filters.state}.`);
   }
 
-  const cityMatch = text.match(/\b(?:city\s*(?:is|=|:)?\s*|in\s+city\s+)([A-Za-z][A-Za-z\s.'-]{1,40})/i);
+  // Improved city extraction: support "City, State Zip" format
+  const cityMatch = text.match(/\b(?:city\s*(?:is|=|:)?\s*|in\s+city\s+|in\s+)([A-Za-z][A-Za-z\s.'-]{1,40})(?:\s*,|\s+(?:TX|CA|NY|FL|PA|IL|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MD|MO|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|NM|NV|AR|MS|KS|IA|NE|ID|HI|NH|ME|MT|RI|DE|SD|ND|AK|VT|WY|DC)\s+)/i);
   if (cityMatch) {
     filters.city = cityMatch[1].trim();
     steps.push(`Detected location filter: city ${filters.city}.`);
   }
+}
+
+function extractDirectIcdCodes(text: string, steps: string[]): string[] {
+  // Match ICD-10 codes like E78.5, I10, J45.909, etc.
+  const icdPattern = /\b([A-Z]\d{2}(?:\.\d{1,3})?)\b/g;
+  const matches = text.match(icdPattern) ?? [];
+  
+  if (matches.length > 0) {
+    steps.push(`Detected direct ICD-10 codes: ${matches.join(", ")}.`);
+  }
+  
+  return matches;
+}
+
+function extractLabValues(text: string, steps: string[]): Map<string, { operator: string; value: number }> {
+  const labValues = new Map<string, { operator: string; value: number }>();
+  
+  // Extract LDL cholesterol values
+  const ldlPattern = /(?:ldl|ldl\s*cholesterol)\s*([<>]=?)\s*(\d+(?:\.\d+)?)\s*(?:mg\/dl|mg\/dL|mg\/dl)/i;
+  const ldlMatch = text.match(ldlPattern);
+  if (ldlMatch) {
+    labValues.set("LDL", { operator: ldlMatch[1], value: Number(ldlMatch[2]) });
+    steps.push(`Detected lab filter: LDL ${ldlMatch[1]} ${ldlMatch[2]} mg/dL.`);
+  }
+  
+  // Extract HDL cholesterol values
+  const hdlPattern = /(?:hdl|hdl\s*cholesterol)\s*([<>]=?)\s*(\d+(?:\.\d+)?)\s*(?:mg\/dl|mg\/dL)/i;
+  const hdlMatch = text.match(hdlPattern);
+  if (hdlMatch) {
+    labValues.set("HDL", { operator: hdlMatch[1], value: Number(hdlMatch[2]) });
+    steps.push(`Detected lab filter: HDL ${hdlMatch[1]} ${hdlMatch[2]} mg/dL.`);
+  }
+  
+  // Extract A1C values
+  const a1cPattern = /(?:a1c|a1C|hba1c|HbA1c)\s*([<>]=?)\s*(\d+(?:\.\d+)?)\s*%/i;
+  const a1cMatch = text.match(a1cPattern);
+  if (a1cMatch) {
+    labValues.set("A1C", { operator: a1cMatch[1], value: Number(a1cMatch[2]) });
+    steps.push(`Detected lab filter: A1C ${a1cMatch[1]} ${a1cMatch[2]}%.`);
+  }
+  
+  return labValues;
+}
+
+function extractExclusions(text: string, steps: string[]): string[] {
+  const exclusions: string[] = [];
+  
+  // Extract smoking status exclusions
+  if (/exclude.*(?:former\s+smoker|ex-smoker|previous\s+smoker)|no.*(?:former\s+smoker|ex-smoker)/i.test(text)) {
+    exclusions.push("former_smoker");
+    steps.push("Detected exclusion filter: exclude former smokers.");
+  }
+  
+  if (/exclude.*(?:current\s+smoker|active\s+smoker)|no.*(?:current\s+smoker|active\s+smoker)/i.test(text)) {
+    exclusions.push("current_smoker");
+    steps.push("Detected exclusion filter: exclude current smokers.");
+  }
+  
+  // Extract disease exclusions
+  if (/exclude.*(?:diabetic|diabetes)|no.*(?:diabetic|diabetes)/i.test(text)) {
+    exclusions.push("diabetes");
+    steps.push("Detected exclusion filter: exclude patients with diabetes.");
+  }
+  
+  return exclusions;
+}
+
+function extractRequestedFields(text: string, steps: string[]): string[] {
+  const fields: string[] = [];
+  
+  // Check for commonly requested fields
+  const fieldPatterns: Record<string, RegExp> = {
+    medications: /medication|drug|prescription/i,
+    diagnosis_codes: /diagnosis code|icd|diagnosis_code/i,
+    procedures: /procedure|surgical/i,
+    lab_results: /lab|laboratory|test result|labValue/i,
+    race: /race/i,
+    ethnicity: /ethnicity|ethnic/i,
+    date_of_birth: /date of birth|dob|birth date/i,
+    contact_info: /contact|phone|email|address/i,
+  };
+  
+  for (const [field, pattern] of Object.entries(fieldPatterns)) {
+    if (pattern.test(text)) {
+      fields.push(field);
+    }
+  }
+  
+  if (fields.length > 0) {
+    steps.push(`Detected requested fields: ${fields.join(", ")}.`);
+  }
+  
+  return fields;
+}
+
+function extractInsuranceStatus(text: string, steps: string[]): string[] {
+  const insuranceTypes: string[] = [];
+  
+  if (/\bMedicare\b/i.test(text)) {
+    insuranceTypes.push("Medicare");
+    steps.push("Detected insurance filter: Medicare patients.");
+  }
+  
+  if (/\bMedicaid\b/i.test(text)) {
+    insuranceTypes.push("Medicaid");
+    steps.push("Detected insurance filter: Medicaid patients.");
+  }
+  
+  if (/\bcommercial\s+insurance\b|\bprivate\s+insurance\b/i.test(text)) {
+    insuranceTypes.push("Commercial");
+    steps.push("Detected insurance filter: Commercial insurance patients.");
+  }
+  
+  if (/\buninsured\b|\bno\s+insurance\b/i.test(text)) {
+    insuranceTypes.push("Uninsured");
+    steps.push("Detected insurance filter: Uninsured patients.");
+  }
+  
+  return insuranceTypes;
+}
+
+function extractMedicationExclusions(text: string, steps: string[]): string[] {
+  const medicationExclusions: string[] = [];
+  
+  // Extract NOT on specific medications
+  const patterns = [
+    { regex: /not\s+on\s+insulin|excluding?\s+insulin|without\s+insulin/i, med: "insulin", label: "insulin" },
+    { regex: /not\s+on\s+statin|excluding?\s+statin|without\s+statin/i, med: "statin", label: "statin" },
+    { regex: /not\s+on\s+ace\s+inhibitor|excluding?\s+ace|without\s+ace/i, med: "ace_inhibitor", label: "ACE inhibitor" },
+    { regex: /not\s+on\s+beta\s+blocker|excluding?\s+beta\s+blocker|without\s+beta\s+blocker/i, med: "beta_blocker", label: "beta blocker" },
+    { regex: /not\s+on\s+anticoagulant|excluding?\s+anticoagulant|without\s+anticoagulant/i, med: "anticoagulant", label: "anticoagulant" },
+  ];
+  
+  for (const { regex, med, label } of patterns) {
+    if (regex.test(text)) {
+      medicationExclusions.push(med);
+      steps.push(`Detected medication exclusion: NOT on ${label}.`);
+    }
+  }
+  
+  return medicationExclusions;
+}
+
+function extractRequiredConditions(
+  concepts: Array<{ entry: { category: string; code: string }; confidence: number; sourceFragment: string }>,
+  steps: string[]
+): string[] {
+  // Identify disease/condition codes that were matched
+  const diseaseCodes = concepts
+    .filter((c) => c.entry.category === "disease")
+    .map((c) => c.entry.code);
+  
+  if (diseaseCodes.length > 1) {
+    steps.push(
+      `Detected multiple required conditions: patient must have ALL of ${diseaseCodes.join(", ")}.`
+    );
+  }
+  
+  return diseaseCodes;
 }
 
 export function parseMedicalQuestion(input: string): ParseResult {
@@ -306,6 +466,14 @@ export function parseMedicalQuestion(input: string): ParseResult {
   extractEthnicityAndRace(input, filters, explanationSteps);
   extractTimeFilters(input, filters, explanationSteps);
   extractLocationFilters(input, filters, explanationSteps);
+  
+  // Extract additional clinical data
+  const directIcdCodes = extractDirectIcdCodes(input, explanationSteps);
+  const labValues = extractLabValues(input, explanationSteps);
+  const exclusions = extractExclusions(input, explanationSteps);
+  const selectedFields = extractRequestedFields(input, explanationSteps);
+  const insuranceStatus = extractInsuranceStatus(input, explanationSteps);
+  const medicationExclusions = extractMedicationExclusions(input, explanationSteps);
 
   const concepts: ExtractedMedicalConcept[] = identifyMedicalConcepts(input).map(
     (match) => ({
@@ -320,11 +488,48 @@ export function parseMedicalQuestion(input: string): ParseResult {
     })
   );
 
+  // Extract required conditions from matched disease concepts
+  const diseaseConcepts = concepts.filter((c) => c.category === "disease");
+  const requiredConditions = diseaseConcepts.length > 1 
+    ? diseaseConcepts.map((c) => c.code)
+    : [];
+  
+  if (requiredConditions.length > 1) {
+    explanationSteps.push(
+      `Detected multiple required disease conditions: patient must have ALL of [${requiredConditions.join(", ")}].`
+    );
+  }
+  
+  // Add extracted values to filters
+  if (directIcdCodes.length > 0) {
+    filters.directIcdCodes = directIcdCodes;
+  }
+  if (labValues.size > 0) {
+    filters.labValues = labValues;
+  }
+  if (exclusions.length > 0) {
+    filters.exclusions = exclusions;
+  }
+  if (selectedFields.length > 0) {
+    filters.selectedFields = selectedFields;
+  }
+  if (insuranceStatus.length > 0) {
+    filters.insuranceStatus = insuranceStatus;
+    explanationSteps.push(`Added insurance filter: ${insuranceStatus.join(", ")}.`);
+  }
+  if (medicationExclusions.length > 0) {
+    filters.medicationExclusions = medicationExclusions;
+    explanationSteps.push(`Added medication exclusions: NOT on ${medicationExclusions.join(", ")}.`);
+  }
+  if (requiredConditions.length > 0) {
+    filters.requiredConditionCodes = requiredConditions;
+  }
+
   if (concepts.length > 0) {
     explanationSteps.push(
       `Mapped ${concepts.length} medical concept${
         concepts.length > 1 ? "s" : ""
-      } to standard codes.`
+      } to standard codes: [${concepts.map((c) => `${c.code}(${c.category})`).join(", ")}].`
     );
   } else {
     explanationSteps.push(

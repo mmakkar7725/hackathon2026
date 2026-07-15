@@ -38,6 +38,12 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# sample PDFs and patient data
+NEW SAMPLE/
+sample-data/
+*.pdf
+
 next-env.d.ts
 
 # generated sample PDFs (large binary files, not needed in repo)

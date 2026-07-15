@@ -146,3 +146,62 @@ export function normalizeLocationLabel(input?: string) {
   const cleaned = input.replace(/\s+/g, " ").trim();
   return cleaned || undefined;
 }
+
+const VALID_STATE_ABBREVIATIONS = new Set([
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY","DC",
+]);
+
+const STATE_NAME_TO_ABBREV: Record<string, string> = {
+  alabama:"AL",alaska:"AK",arizona:"AZ",arkansas:"AR",california:"CA",
+  colorado:"CO",connecticut:"CT",delaware:"DE",florida:"FL",georgia:"GA",
+  hawaii:"HI",idaho:"ID",illinois:"IL",indiana:"IN",iowa:"IA",kansas:"KS",
+  kentucky:"KY",louisiana:"LA",maine:"ME",maryland:"MD",massachusetts:"MA",
+  michigan:"MI",minnesota:"MN",mississippi:"MS",missouri:"MO",montana:"MT",
+  nebraska:"NE",nevada:"NV","new hampshire":"NH","new jersey":"NJ",
+  "new mexico":"NM","new york":"NY","north carolina":"NC","north dakota":"ND",
+  ohio:"OH",oklahoma:"OK",oregon:"OR",pennsylvania:"PA","rhode island":"RI",
+  "south carolina":"SC","south dakota":"SD",tennessee:"TN",texas:"TX",
+  utah:"UT",vermont:"VT",virginia:"VA",washington:"WA","west virginia":"WV",
+  wisconsin:"WI",wyoming:"WY","district of columbia":"DC",
+};
+
+/**
+ * Normalizes and validates a state value.
+ * Strips trailing zip codes, handles full names, and rejects invalid values.
+ */
+export function normalizeStateAbbreviation(input?: string): string | undefined {
+  if (!input) return undefined;
+
+  // Strip leading/trailing whitespace and common noise (zip codes, extra text)
+  const cleaned = input.trim()
+    .replace(/\d{5}(?:-\d{4})?.*$/, "")  // strip trailing zip and anything after
+    .replace(/[^A-Za-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return undefined;
+
+  // Check if it's already a valid 2-letter abbreviation
+  const upper = cleaned.toUpperCase();
+  if (upper.length === 2 && VALID_STATE_ABBREVIATIONS.has(upper)) {
+    return upper;
+  }
+
+  // Try matching full state name
+  const lower = cleaned.toLowerCase();
+  if (STATE_NAME_TO_ABBREV[lower]) {
+    return STATE_NAME_TO_ABBREV[lower];
+  }
+
+  // Try partial match for names like "New York" that might have trailing noise
+  for (const [name, abbrev] of Object.entries(STATE_NAME_TO_ABBREV)) {
+    if (lower.startsWith(name)) {
+      return abbrev;
+    }
+  }
+
+  return undefined;
+}

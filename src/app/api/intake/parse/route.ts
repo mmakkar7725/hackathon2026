@@ -11,6 +11,7 @@ import {
   normalizeAge,
   normalizeDateOfBirth,
   normalizeLocationLabel,
+  normalizeStateAbbreviation,
   normalizeZipCode,
 } from "@/services/demographics";
 import { IntakeParseResponse } from "@/types/intake";
@@ -280,7 +281,7 @@ function normalizeResponse(response: IntakeParseResponse): IntakeParseResponse {
         age: normalizeAge(item.age, dateOfBirth, now),
         dateOfBirth,
         city: normalizeLocationLabel(item.city),
-        state: normalizeLocationLabel(item.state),
+        state: normalizeStateAbbreviation(item.state),
         zipcode: normalizeZipCode(item.zipcode),
         ethnicity: normalizeLocationLabel(item.ethnicity),
         race: normalizeLocationLabel(item.race),

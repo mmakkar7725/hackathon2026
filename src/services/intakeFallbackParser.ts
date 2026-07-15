@@ -3,6 +3,7 @@ import {
   normalizeAge,
   normalizeDateOfBirth,
   normalizeLocationLabel,
+  normalizeStateAbbreviation,
   normalizeZipCode,
 } from "@/services/demographics";
 import { DemographicsRecord, MedicalHistoryRecord } from "@/types/intake";
@@ -167,26 +168,72 @@ function extractZipcode(text: string) {
     return normalizeZipCode(explicit);
   }
 
-  const fromAddress = text.match(/\b([A-Za-z .'-]{2,80}),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
+  // Try multi-line address: city on one line, state+zip on next
+  const multiLine = text.match(/,\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
+  if (multiLine) {
+    return normalizeZipCode(multiLine[2]);
+  }
+
+  const fromAddress = text.match(/\b([A-Za-z][A-Za-z .'-]{1,80}),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/);
   return normalizeZipCode(fromAddress?.[3]);
 }
 
 function extractCityState(text: string) {
+  // 1. Try explicit labeled fields first — but enforce word boundary to avoid
+  //    "insurance_status", "status", "statement", etc. false-matching "state"
   const city = normalizeLocationLabel(
-    findFirstMatch(text, [/city\s*[:#-]?\s*([^\n\r]+)/i])
+    findFirstMatch(text, [
+      /^city\s*[:#-]\s*([^\n\r]+)/im,
+      /\bcity\s*[:#-]\s*([^\n\r]+)/i,
+    ])
   );
-  const stateRaw = findFirstMatch(text, [/state\s*[:#-]?\s*([^\n\r]+)/i]);
-  const state = normalizeLocationLabel(stateRaw)?.toUpperCase();
+
+  const stateRaw = findFirstMatch(text, [
+    /^state\s*[:#-]\s*([^\n\r]+)/im,         // labeled on its own line
+    /\bstate\s+of\s+(?:residence\s*[:#-]?\s*)?([A-Za-z]{2,30})/i,
+  ]);
+  const state = normalizeStateAbbreviation(stateRaw);
 
   if (city || state) {
     return { city, state };
   }
 
-  const addressMatch = text.match(/\b([A-Za-z .'-]{2,80}),\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/);
-  return {
-    city: normalizeLocationLabel(addressMatch?.[1]),
-    state: normalizeLocationLabel(addressMatch?.[2])?.toUpperCase(),
-  };
+  // 2. Full single-line address: "1415 River Road, Las Vegas, NV 89105"
+  //    City is the last comma-separated segment before the state abbreviation+zip
+  const singleLine = text.match(
+    /\b([A-Za-z][A-Za-z .'-]{1,80}),\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/
+  );
+  if (singleLine) {
+    return {
+      city: normalizeLocationLabel(singleLine[1]),
+      state: normalizeStateAbbreviation(singleLine[2]),
+    };
+  }
+
+  // 3. Multi-line address: city on one line, "ST  ZIPCODE" on the next
+  //    e.g. "Las Vegas,\nNV 89105"
+  const multiLine = text.match(
+    /([A-Za-z][A-Za-z .'-]{1,40}),?\s*\n\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/
+  );
+  if (multiLine) {
+    return {
+      city: normalizeLocationLabel(multiLine[1]),
+      state: normalizeStateAbbreviation(multiLine[2]),
+    };
+  }
+
+  // 4. State abbreviation directly after "Home Address:" or "Address:" label
+  const addressLabel = text.match(
+    /(?:home\s+)?address\s*[:#-][^\n]*,\s*([A-Za-z]{2})\s+\d{5}/i
+  );
+  if (addressLabel) {
+    return {
+      city: undefined,
+      state: normalizeStateAbbreviation(addressLabel[1]),
+    };
+  }
+
+  return { city: undefined, state: undefined };
 }
 
 function extractEthnicity(text: string) {

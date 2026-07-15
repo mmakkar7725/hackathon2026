@@ -14,6 +14,120 @@ function buildTemporalClause(parsed: ParseResult) {
   return undefined;
 }
 
+function buildLabValueClauses(labValues?: Map<string, { operator: string; value: number }>): string[] {
+  if (!labValues || labValues.size === 0) return [];
+  
+  const clauses: string[] = [];
+  
+  for (const [labName, { operator, value }] of labValues.entries()) {
+    // Map lab names to potential column names or use as-is
+    const columnName = `lab_${labName.toLowerCase()}`;
+    clauses.push(`${columnName} ${operator} ${value}`);
+  }
+  
+  return clauses;
+}
+
+function buildExclusionClauses(exclusions?: string[]): string[] {
+  if (!exclusions || exclusions.length === 0) return [];
+  
+  const clauses: string[] = [];
+  
+  for (const exclusion of exclusions) {
+    if (exclusion === "former_smoker") {
+      clauses.push(`smoking_status != 'former'`);
+    } else if (exclusion === "current_smoker") {
+      clauses.push(`smoking_status != 'current'`);
+    } else if (exclusion === "diabetes") {
+      clauses.push(`diagnosis_code NOT IN ('E10', 'E11', 'E13', 'E14')`);
+    }
+  }
+  
+  return clauses;
+}
+
+function buildInsuranceFilterClauses(insuranceStatus?: string[]): string[] {
+  if (!insuranceStatus || insuranceStatus.length === 0) return [];
+  
+  const clauses: string[] = [];
+  const insuranceValues = insuranceStatus.map((s) => `'${s}'`).join(",");
+  clauses.push(`insurance_status IN (${insuranceValues})`);
+  
+  return clauses;
+}
+
+function buildMedicationExclusionClauses(medicationExclusions?: string[]): string[] {
+  if (!medicationExclusions || medicationExclusions.length === 0) return [];
+  
+  const clauses: string[] = [];
+  
+  for (const medication of medicationExclusions) {
+    if (medication === "insulin") {
+      clauses.push(`medication_code NOT IN ('insulin', 'lispro', 'aspart', 'glargine', 'detemir')`);
+    } else if (medication === "statin") {
+      clauses.push(`medication_code NOT IN ('atorvastatin', 'simvastatin', 'pravastatin', 'rosuvastatin')`);
+    } else if (medication === "ace_inhibitor") {
+      clauses.push(`medication_code NOT IN ('lisinopril', 'enalapril', 'ramipril', 'perindopril')`);
+    } else if (medication === "beta_blocker") {
+      clauses.push(`medication_code NOT IN ('metoprolol', 'atenolol', 'bisoprolol', 'carvedilol')`);
+    } else if (medication === "anticoagulant") {
+      clauses.push(`medication_code NOT IN ('warfarin', 'apixaban', 'rivaroxaban', 'dabigatran')`);
+    }
+  }
+  
+  return clauses;
+}
+
+function buildSelectClause(selectedFields?: string[]): string {
+  const baseFields = [
+    "patient_id",
+    "full_name",
+    "age",
+    "gender",
+    "date_of_birth",
+    "city",
+    "state",
+    "zipcode",
+    "diagnosis_code",
+    "symptom_code",
+    "diagnosis_date",
+  ];
+  
+  if (!selectedFields || selectedFields.length === 0) {
+    return baseFields.join(",\n  ");
+  }
+  
+  // Add requested fields to base fields
+  const allFields = new Set(baseFields);
+  
+  for (const field of selectedFields) {
+    if (field === "medications") {
+      allFields.add("medications");
+      allFields.add("medication_codes");
+    } else if (field === "diagnosis_codes") {
+      // Already in base
+    } else if (field === "procedures") {
+      allFields.add("procedures");
+      allFields.add("procedure_codes");
+    } else if (field === "lab_results") {
+      allFields.add("lab_results");
+      allFields.add("lab_values");
+    } else if (field === "race") {
+      allFields.add("race");
+    } else if (field === "ethnicity") {
+      allFields.add("ethnicity");
+    } else if (field === "date_of_birth") {
+      // Already in base
+    } else if (field === "contact_info") {
+      allFields.add("phone");
+      allFields.add("email");
+      allFields.add("address");
+    }
+  }
+  
+  return Array.from(allFields).join(",\n  ");
+}
+
 export function generateSqlFromParsedQuery(parsed: ParseResult) {
   const whereClauses: string[] = [];
   const diagnosisCodes = parsed.concepts
@@ -24,8 +138,19 @@ export function generateSqlFromParsedQuery(parsed: ParseResult) {
     .filter((c) => c.category === "symptom")
     .map((c) => c.code);
 
-  if (diagnosisCodes.length > 0) {
-    whereClauses.push(`diagnosis_code IN ('${diagnosisCodes.join("','")}')`);
+  // Add direct ICD codes
+  const allDiagnosisCodes = [
+    ...diagnosisCodes,
+    ...(parsed.filters.directIcdCodes ?? []),
+  ];
+
+  // If multiple required conditions, each must be present (AND logic)
+  if (parsed.filters.requiredConditionCodes && parsed.filters.requiredConditionCodes.length > 1) {
+    for (const code of parsed.filters.requiredConditionCodes) {
+      whereClauses.push(`diagnosis_code = '${code}'`);
+    }
+  } else if (allDiagnosisCodes.length > 0) {
+    whereClauses.push(`diagnosis_code IN ('${allDiagnosisCodes.join("','")}')`);
   }
 
   if (symptomCodes.length > 0) {
@@ -78,11 +203,29 @@ export function generateSqlFromParsedQuery(parsed: ParseResult) {
   if (temporalClause) {
     whereClauses.push(temporalClause);
   }
+  
+  // Add lab value clauses
+  const labClauses = buildLabValueClauses(parsed.filters.labValues);
+  whereClauses.push(...labClauses);
+  
+  // Add exclusion clauses
+  const exclusionClauses = buildExclusionClauses(parsed.filters.exclusions);
+  whereClauses.push(...exclusionClauses);
+  
+  // Add insurance filter clauses
+  const insuranceClauses = buildInsuranceFilterClauses(parsed.filters.insuranceStatus);
+  whereClauses.push(...insuranceClauses);
+  
+  // Add medication exclusion clauses
+  const medicationExclusionClauses = buildMedicationExclusionClauses(parsed.filters.medicationExclusions);
+  whereClauses.push(...medicationExclusionClauses);
 
   const whereBlock =
     whereClauses.length > 0
       ? `WHERE\n  ${whereClauses.join("\n  AND ")}`
       : "-- No filters extracted";
 
-  return `SELECT\n  patient_id,\n  full_name,\n  age,\n  gender,\n  date_of_birth,\n  city,\n  state,\n  zipcode,\n  diagnosis_code,\n  symptom_code,\n  diagnosis_date\nFROM patients\n${whereBlock}\nORDER BY diagnosis_date DESC;`;
+  const selectClause = buildSelectClause(parsed.filters.selectedFields);
+
+  return `SELECT\n  ${selectClause}\nFROM patients\n${whereBlock}\nORDER BY diagnosis_date DESC;`;
 }

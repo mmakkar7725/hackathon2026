@@ -1,4 +1,7 @@
 import { medicalDictionary } from "@/data/medicalDictionary";
+import { icd10Codes } from "@/data/icd10Codes";
+import { snomedctCodes } from "@/data/snomedctCodes";
+import { loincCodes } from "@/data/loincCodes";
 import { MedicalDictionaryEntry } from "@/types/medical";
 
 function levenshteinDistance(a: string, b: string) {
@@ -102,6 +105,10 @@ function scoreMatch(entry: MedicalDictionaryEntry, lowerInput: string) {
   };
 }
 
+/**
+ * Identify medical concepts from text using expanded dictionaries
+ * Supports ICD-10, SNOMED-CT, and LOINC codes
+ */
 export function identifyMedicalConcepts(input: string) {
   const lowerInput = input.toLowerCase();
 
@@ -115,4 +122,60 @@ export function identifyMedicalConcepts(input: string) {
       };
     })
     .filter((item) => item.confidence > 0);
+}
+
+/**
+ * Search across all coding systems (ICD-10, SNOMED-CT, LOINC)
+ */
+export function searchAllCodingSystems(searchTerm: string, limit: number = 10) {
+  const lowerTerm = searchTerm.toLowerCase();
+
+  const icd10Results = icd10Codes
+    .filter(
+      (code) =>
+        code.name.toLowerCase().includes(lowerTerm) ||
+        code.code.toLowerCase().includes(lowerTerm)
+    )
+    .slice(0, limit)
+    .map((code) => ({
+      system: "ICD10" as const,
+      code: code.code,
+      name: code.name,
+      confidence: 0.85,
+    }));
+
+  const snomedResults = snomedctCodes
+    .filter(
+      (code) =>
+        code.name.toLowerCase().includes(lowerTerm) ||
+        code.code.toLowerCase().includes(lowerTerm)
+    )
+    .slice(0, limit)
+    .map((code) => ({
+      system: "SNOMED" as const,
+      code: code.code,
+      name: code.name,
+      confidence: 0.85,
+    }));
+
+  const loincResults = loincCodes
+    .filter(
+      (code) =>
+        code.name.toLowerCase().includes(lowerTerm) ||
+        code.code.toLowerCase().includes(lowerTerm)
+    )
+    .slice(0, limit)
+    .map((code) => ({
+      system: "LOINC" as const,
+      code: code.code,
+      name: code.name,
+      confidence: 0.80,
+    }));
+
+  return {
+    icd10: icd10Results,
+    snomed: snomedResults,
+    loinc: loincResults,
+    total: icd10Results.length + snomedResults.length + loincResults.length,
+  };
 }
