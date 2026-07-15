@@ -1,6 +1,7 @@
 export type MedicalCategory =
   | "disease"
   | "symptom"
+  | "lab_test"
   | "demographic"
   | "filter";
 

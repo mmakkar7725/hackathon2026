@@ -14,6 +14,8 @@ import {
   normalizeStateAbbreviation,
   normalizeZipCode,
 } from "@/services/demographics";
+import { identifyMedicalConcepts } from "@/services/medicalDictionaryService";
+import { medicalDictionary } from "@/data/medicalDictionary";
 import { IntakeParseResponse } from "@/types/intake";
 
 export const runtime = "nodejs";
@@ -395,6 +397,87 @@ function normalizeCodeSystem(input?: string) {
   return "UNKNOWN" as const;
 }
 
+/**
+ * Fallback lookup: If Gemini didn't provide a code, try to find it from the condition name
+ * using the medical dictionary. Uses multiple strategies:
+ * 1. Exact synonym match (case-insensitive)
+ * 2. Substring match against condition name
+ * 3. Fuzzy matching for variations
+ */
+function lookupCodeFromCondition(condition: string): { code: string; codeSystem: string } {
+  if (!condition || condition === "Unspecified condition") {
+    return { code: "N/A", codeSystem: "UNKNOWN" };
+  }
+
+  try {
+    const lowerCondition = condition.toLowerCase().trim();
+    
+    // Look for exact synonym matches first (most reliable)
+    for (const entry of medicalDictionary) {
+      // Skip lab tests
+      if (entry.category === "lab_test") continue;
+      
+      // Check if any synonym matches exactly (case-insensitive)
+      const hasExactMatch = entry.synonyms.some(
+        (syn: string) => syn.toLowerCase() === lowerCondition
+      );
+      
+      if (hasExactMatch) {
+        return {
+          code: entry.code,
+          codeSystem: entry.codingSystem,
+        };
+      }
+      
+      // Check if condition name matches
+      if (entry.name.toLowerCase() === lowerCondition) {
+        return {
+          code: entry.code,
+          codeSystem: entry.codingSystem,
+        };
+      }
+    }
+
+    // Strategy 2: Substring matching (for partial matches)
+    for (const entry of medicalDictionary) {
+      if (entry.category === "lab_test") continue;
+      
+      // Check if any synonym is contained in the condition (case-insensitive)
+      const hasSubstringMatch = entry.synonyms.some(
+        (syn: string) => lowerCondition.includes(syn.toLowerCase()) || 
+                        syn.toLowerCase().includes(lowerCondition)
+      );
+      
+      if (hasSubstringMatch) {
+        return {
+          code: entry.code,
+          codeSystem: entry.codingSystem,
+        };
+      }
+    }
+
+    // Strategy 3: Fuzzy matching via identifyMedicalConcepts as fallback
+    const matches = identifyMedicalConcepts(condition);
+    if (matches.length > 0) {
+      const bestMatch = matches.reduce((best, current) =>
+        current.confidence > best.confidence ? current : best
+      );
+      
+      if (bestMatch.entry.codingSystem === "ICD10" || bestMatch.entry.codingSystem === "SNOMED") {
+        return {
+          code: bestMatch.entry.code,
+          codeSystem: bestMatch.entry.codingSystem,
+        };
+      }
+    }
+
+    return { code: "N/A", codeSystem: "UNKNOWN" };
+  } catch (error) {
+    console.error("[DEBUG] lookupCodeFromCondition error:", error);
+    return { code: "N/A", codeSystem: "UNKNOWN" };
+  }
+}
+
 function normalizeGeminiResponse(input: {
   response: IntakeParseResponse;
   sourceFileName: string;
@@ -456,6 +539,53 @@ function normalizeGeminiResponse(input: {
   const medicalHistory = toArray(input.response.medicalHistory)
     .map((row, index) => {
       const record = asRecord(row);
+      
+      // DEBUG: Log medical history record structure
+      console.log(`[DEBUG] Medical History Record ${index} fields:`, Object.keys(record));
+      console.log(`[DEBUG] Medical History Record ${index} full data:`, JSON.stringify(record, null, 2));
+
+      const condition =
+        pickString(record, [
+          "condition",
+          "diagnosis",
+          "medicalCondition",
+          "medical_condition",
+          "disease",
+        ]) ??
+        "Unspecified condition";
+
+      let code =
+        pickString(record, [
+          "code",
+          "icdCode",
+          "icd_code",
+          "icd10",
+          "icd10code",
+          "snomedCode",
+          "snomed_code",
+        ]) ?? "N/A";
+
+      let codeSystem = normalizeCodeSystem(
+        pickString(record, [
+          "codeSystem",
+          "code_system",
+          "codingSystem",
+          "coding_system",
+          "system",
+        ])
+      );
+
+      // FALLBACK: If code is missing or "N/A", try to look it up from the condition name
+      if (code === "N/A" || codeSystem === "UNKNOWN") {
+        console.log(`[DEBUG] Fallback lookup for condition: "${condition}" (code was: ${code}, system was: ${codeSystem})`);
+        const looked = lookupCodeFromCondition(condition);
+        console.log(`[DEBUG] Lookup result: code=${looked.code}, codeSystem=${looked.codeSystem}`);
+        if (looked.code !== "N/A") {
+          code = looked.code;
+          codeSystem = looked.codeSystem as "ICD10" | "SNOMED" | "UNKNOWN";
+          console.log(`[DEBUG] Applied fallback: condition="${condition}" -> code=${code}, system=${codeSystem}`);
+        }
+      }
 
       return {
         id: pickString(record, ["id"]) ?? `med-${now}-${index}`,
@@ -466,34 +596,9 @@ function normalizeGeminiResponse(input: {
           pickString(record, ["patientId", "patient_id", "mrn", "id"]) ??
           demographics[0]?.patientId ??
           `PT-${now}`,
-        condition:
-          pickString(record, [
-            "condition",
-            "diagnosis",
-            "medicalCondition",
-            "medical_condition",
-            "disease",
-          ]) ??
-          "Unspecified condition",
-        codeSystem: normalizeCodeSystem(
-          pickString(record, [
-            "codeSystem",
-            "code_system",
-            "codingSystem",
-            "coding_system",
-            "system",
-          ])
-        ),
-        code:
-          pickString(record, [
-            "code",
-            "icdCode",
-            "icd_code",
-            "icd10",
-            "icd10code",
-            "snomedCode",
-            "snomed_code",
-          ]) ?? "N/A",
+        condition,
+        codeSystem,
+        code,
         note: pickString(record, ["note", "status", "comment"]),
         onsetDate: pickString(record, ["onsetDate", "onset_date", "diagnosedDate", "diagnosed_date"]),
         extractedAt: pickNumber(record, ["extractedAt", "extracted_at", "timestamp"]) ?? now,
@@ -610,6 +715,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (gemini?.ok) {
+      // DEBUG: Log raw Gemini response to see actual structure
+      console.log(
+        "[DEBUG] Gemini raw response:",
+        JSON.stringify(gemini.parsed, null, 2)
+      );
+
       const normalizedGemini = normalizeGeminiResponse({
         response: {
           demographics: gemini.parsed.demographics,
